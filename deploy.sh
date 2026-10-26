@@ -10,6 +10,7 @@ GH="${GH:-gh}"
 export PATH="/c/Users/james/tools/node-v20.18.1-win-x64:$PATH"
 export npm_config_script_shell="C:\\Program Files\\Git\\bin\\bash.exe"
 
+"$GH" auth setup-git
 OWNER="$("$GH" api user --jq .login)"
 echo "Publishing to $OWNER/$REPO_NAME"
 
