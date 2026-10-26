@@ -96,6 +96,60 @@ export const wavesLoadout: Loadout = {
   ],
 };
 
+/** The setup used in the real fight (from the player's screenshot). */
+export const realFightLoadout: Loadout = {
+  name: "My setup (Blue Moon / tentacle)",
+  equipment: {
+    weapon: CACHE_ASSETS.items.abyssalTentacle.id,
+    offhand: CACHE_ASSETS.items.dragonDefender.id,
+    helmet: CACHE_ASSETS.items.blueMoonHelm.id,
+    necklace: CACHE_ASSETS.items.amuletOfBloodFury.id,
+    cape: CACHE_ASSETS.items.infernalCape.id,
+    ammo: CACHE_ASSETS.items.radasBlessing4.id,
+    chest: CACHE_ASSETS.items.blueMoonChestplate.id,
+    legs: CACHE_ASSETS.items.blueMoonTassets.id,
+    feet: CACHE_ASSETS.items.eternalBoots.id,
+    gloves: CACHE_ASSETS.items.barrowsGloves.id,
+    ring: CACHE_ASSETS.items.berserkerRingI.id,
+  },
+  inventory: [
+    CACHE_ASSETS.items.torvaPlatebody.id,
+    CACHE_ASSETS.items.bowOfFaerdhinen.id,
+    CACHE_ASSETS.items.blueMoonSpear.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+
+    CACHE_ASSETS.items.torvaFullHelm.id,
+    CACHE_ASSETS.items.torvaPlatelegs.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.superRestore.id,
+
+    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.superRestore.id,
+
+    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.superRestore.id,
+    null, // rune pouch
+
+    CACHE_ASSETS.items.rangingPotion.id,
+    CACHE_ASSETS.items.superCombatPotion.id,
+    CACHE_ASSETS.items.prayerRegenerationPotion.id,
+    CACHE_ASSETS.items.prayerRegenerationPotion.id,
+  ],
+};
+
 /** Apply the Colosseum's fixed player stats and starting boost after Region.reset(). */
 export function configureColosseumPlayer(player: Player) {
   player.stats.prayer = 99;

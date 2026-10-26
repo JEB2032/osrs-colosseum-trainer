@@ -17,7 +17,7 @@ import { DefaultSidebar, GameOverlay, LoadoutManager, Modal, RuneScapeButton, Ru
 import { ColosseumRegion } from "./content/colosseum/js/ColosseumRegion";
 import { ImportedReinforcements, WAVE_COMPOSITIONS, WaveNumber, WavesRegion } from "./content/colosseum/js/WavesRegion";
 import { COLOSSEUM_ASSETS } from "./assets";
-import { colosseumLoadout, wavesLoadout } from "./content/colosseum/js/ColosseumLoadout";
+import { colosseumLoadout, realFightLoadout, wavesLoadout } from "./content/colosseum/js/ColosseumLoadout";
 import {
   colosseumSettings,
   ColosseumSettingsState,
@@ -41,7 +41,9 @@ declare global {
   }
 }
 
-const loadoutTemplates = [colosseumLoadout, wavesLoadout];
+const loadoutTemplates = [colosseumLoadout, wavesLoadout, realFightLoadout];
+// Waves default to the real-fight setup; the first template is used when none is selected.
+const wavesLoadoutTemplates = [realFightLoadout, wavesLoadout, colosseumLoadout];
 
 type TransferredSettings = {
   version: 1;
@@ -95,6 +97,25 @@ function applyTransferredSettings() {
   }
 }
 
+const TILE_PRESET_KEY = "colosseum-trainer:tile-preset";
+
+/** One-time defaults matching the player's RuneLite Tile Indicators (hovered yellow, true tile cyan). */
+function applyTilePreset() {
+  try {
+    if (window.localStorage.getItem(TILE_PRESET_KEY) === "1") return;
+    window.localStorage.setItem(TILE_PRESET_KEY, "1");
+  } catch {
+    return;
+  }
+  Settings.set({
+    targetTileEnabled: false,
+    hoveredTileEnabled: true,
+    hoveredTileColor: "#E2D723",
+    trueTileEnabled: true,
+    trueTileColor: "#00FFFF",
+  });
+}
+
 function createTrainer() {
   CacheRender.configure(
     __OSRS_CACHE_RENDER_MANIFEST_URL__
@@ -102,12 +123,13 @@ function createTrainer() {
       || new URL("osrs-assets/manifest.json", window.location.href).href,
   );
   Settings.readFromStorage();
+  applyTilePreset();
   applyTransferredSettings();
   colosseumSettings.load();
 
   const regions: Record<string, Region> = {
     "colosseum.html": new ColosseumRegion(loadoutTemplates),
-    "waves.html": new WavesRegion(loadoutTemplates),
+    "waves.html": new WavesRegion(wavesLoadoutTemplates),
   };
   const regionName = window.location.pathname.split("/").pop() ?? "waves.html";
   const region = regions[regionName] ?? regions["waves.html"];
@@ -186,6 +208,15 @@ function WavesSidebar({ region }: { region: WavesRegion }) {
           }}
         />
         Manticore charge timer (aid)
+      </label>
+      <br />
+      <label>
+        <input
+          type="checkbox"
+          checked={settings.showMetronome}
+          onChange={(event) => colosseumSettings.set({ showMetronome: event.currentTarget.checked })}
+        />
+        Visual metronome (1–5)
       </label>
       <br />
       <label>

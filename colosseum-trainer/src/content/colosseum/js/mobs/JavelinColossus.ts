@@ -2,9 +2,13 @@ import {
   CacheRenderModel,
   CacheRenderReferences,
   cacheSound,
+  DelayedAction,
   Mob,
+  Projectile,
+  Random,
   RangedWeapon,
   Sound,
+  TileMarker,
   UnitBonuses,
 } from "osrs-sdk";
 import type { Model } from "osrs-sdk";
@@ -27,9 +31,44 @@ class JavelinWeapon extends RangedWeapon {
   }
 }
 
+// Javelin toss (OSRS Wiki strategy guide): every fifth attack is replaced by a javelin thrown high
+// into the air at the player's tile. It lands 6 ticks later for up to 40 typeless damage, which
+// Protect from Missiles does not block.
+const TOSS_EVERY_N_ATTACKS = 5;
+const TOSS_LANDING_TICKS = 6;
+const TOSS_MAX_HIT = 40;
+
 /** The Fortis Colosseum's Javelin Colossus (NPC definition 12817). */
 export class JavelinColossus extends Mob {
   static readonly NPC_ID = COLOSSEUM_ASSETS.npcs.javelinColossus.id;
+
+  private attacksMade = 0;
+  private tossing = false;
+
+  override attack() {
+    const target = this.aggro;
+    if (!target || target.dying >= 0) return false;
+    this.attacksMade++;
+    this.tossing = this.attacksMade % TOSS_EVERY_N_ATTACKS === 0;
+    if (!this.tossing) return super.attack();
+
+    const tile = { x: target.location.x, y: target.location.y };
+    const marker = new TileMarker(this.region, { ...tile }, "#FF3000", 1, false);
+    this.region.addEntity(marker);
+    DelayedAction.registerDelayedNpcAction(new DelayedAction(() => {
+      this.region.removeEntity(marker);
+      if (target.dying >= 0) return;
+      if (target.location.x === tile.x && target.location.y === tile.y) {
+        const damage = Math.floor(Random.get() * (TOSS_MAX_HIT + 1));
+        target.addProjectile(new Projectile(null, damage, target, target, "typeless", { setDelay: 0 }));
+      }
+    }, TOSS_LANDING_TICKS));
+    return true;
+  }
+
+  override get attackAnimationId() {
+    return this.tossing ? JavelinColossusAnimations.ArtilleryAttack : JavelinColossusAnimations.RangeAttack;
+  }
 
   override mobName() {
     return "Javelin Colossus";
@@ -96,10 +135,6 @@ export class JavelinColossus extends Mob {
 
   override get walkingPoseId() {
     return JavelinColossusAnimations.Walk;
-  }
-
-  override get attackAnimationId() {
-    return JavelinColossusAnimations.RangeAttack;
   }
 
   override get deathAnimationId() {

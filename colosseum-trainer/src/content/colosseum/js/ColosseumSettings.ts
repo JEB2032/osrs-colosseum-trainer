@@ -21,6 +21,8 @@ export type ColosseumSettingsState = {
   invocations: InvocationState;
   /** Trainer aid: draw the manticore's charge countdown (not shown in the real client). */
   showManticoreTimer: boolean;
+  /** Visual metronome infobox counting ticks 1-5. */
+  showMetronome: boolean;
 };
 
 const STORAGE_KEY = "colosseum-trainer:settings";
@@ -37,6 +39,7 @@ const defaults: ColosseumSettingsState = {
   useTriple: true,
   invocations: DEFAULT_INVOCATIONS,
   showManticoreTimer: false,
+  showMetronome: true,
 };
 
 const jsonStorage = createJsonSettingsStorage<ColosseumSettingsState>(STORAGE_KEY, 1);
@@ -73,6 +76,7 @@ const storage: SettingsStorage<ColosseumSettingsState> = {
       useTriple: window.localStorage.getItem("useTriple") !== "false",
       invocations: DEFAULT_INVOCATIONS,
       showManticoreTimer: false,
+      showMetronome: true,
     };
     jsonStorage.save(migrated);
     return migrated;

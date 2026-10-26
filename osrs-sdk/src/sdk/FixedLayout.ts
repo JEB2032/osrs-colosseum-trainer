@@ -50,6 +50,38 @@ export class FixedLayout {
 
   static chatMessages: { text: string; color: string }[] = [];
 
+  /**
+   * Infoboxes (like RuneLite's Visual Metronome) drawn as 32x32 boxes. Each returns its text,
+   * or null to hide it.
+   */
+  static infoboxes: (() => { text: string; active?: boolean } | null)[] = [];
+
+  /** Draw infoboxes right-aligned at the given position in fixed-client pixels. */
+  static drawInfoboxes(context: CanvasRenderingContext2D, k: number, rightX: number, topY: number) {
+    const boxes = FixedLayout.infoboxes.map((box) => box()).filter((box) => box !== null);
+    boxes.forEach((box, index) => {
+      const size = 32 * k;
+      const x = (rightX - 34 * (index + 1)) * k;
+      const y = topY * k;
+      context.save();
+      context.fillStyle = "rgba(70, 61, 50, 0.85)";
+      context.fillRect(x, y, size, size);
+      context.strokeStyle = "#1e1912";
+      context.lineWidth = Math.max(1, k);
+      context.strokeRect(x, y, size, size);
+      // Tick indicator square, as in the RuneLite Visual Metronome.
+      context.fillStyle = box.active ? "#ffffff" : "#000000";
+      context.fillRect(x + 12 * k, y + 8 * k, 8 * k, 8 * k);
+      context.font = `${Math.round(16 * k)}px OSRS`;
+      context.textAlign = "center";
+      context.fillStyle = "#000000";
+      context.fillText(box.text, x + 17 * k, y + 29 * k);
+      context.fillStyle = "#ffffff";
+      context.fillText(box.text, x + 16 * k, y + 28 * k);
+      context.restore();
+    });
+  }
+
   /** Append a game message to the fixed-mode chatbox. */
   static addChatMessage(text: string, color = "#000000") {
     FixedLayout.chatMessages.push({ text, color });

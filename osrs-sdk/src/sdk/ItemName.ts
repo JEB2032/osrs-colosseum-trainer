@@ -1,4 +1,13 @@
 export enum ItemName {
+  BLUE_MOON_HELM = "Blue Moon helm",
+  BLUE_MOON_CHESTPLATE = "Blue Moon chestplate",
+  BLUE_MOON_TASSETS = "Blue Moon tassets",
+  ETERNAL_BOOTS = "Eternal boots",
+  AMULET_OF_BLOOD_FURY = "Amulet of blood fury",
+  RADAS_BLESSING_4 = "Rada's blessing 4",
+  BLUE_MOON_SPEAR = "Blue Moon spear",
+  RANGING_POTION = "Ranging potion",
+  PRAYER_REGENERATION_POTION = "Prayer regeneration potion",
   BLOOD_BARRAGE = "Blood Barrage",
   ICE_BARRAGE = "Ice Barrage",
   AHRIMS_ROBETOP = "Ahrim's robetop",

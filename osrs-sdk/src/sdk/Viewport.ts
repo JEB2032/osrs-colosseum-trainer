@@ -285,6 +285,13 @@ export class Viewport {
 
     this.drawBossHealthBar(Trainer.player.region, width);
 
+    if (FixedLayout.enabled) {
+      // Bottom-right of the chatbox, where RuneLite stacks infoboxes in fixed mode.
+      FixedLayout.drawInfoboxes(this.context, FixedLayout.scale(width), 450, 426);
+    } else {
+      FixedLayout.drawInfoboxes(this.context, Settings.maxUiScale, width / Settings.maxUiScale - 250, height / Settings.maxUiScale - 40);
+    }
+
     // draw control panel
     ControlPanelController.controller.draw(this.context);
     XpDropController.controller.draw(

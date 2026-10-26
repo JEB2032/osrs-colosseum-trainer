@@ -78,6 +78,11 @@ export class ReplayController {
     return this.mode === "replay";
   }
 
+  /** Ticks since the current run was reset. */
+  runTick() {
+    return this.getWorld().globalTickCounter - this.startTick;
+  }
+
   /**
    * Called by the region on every reset. Returns the config the new run must use: the live
    * settings for a normal run, or the recorded config when a replay is being set up.

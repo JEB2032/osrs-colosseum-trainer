@@ -225,6 +225,13 @@ export class WavesRegion extends ColosseumRegion {
     ReplayLog.registerCustom("waveStart", () => {
       if (this.wavePhase === "waiting") this.waveStartRequested = true;
     });
+    // Visual metronome: counts 1-5. Once NPCs are in, 1 is the tick they spawned on.
+    FixedLayout.infoboxes = [() => {
+      if (!colosseumSettings.getSnapshot().showMetronome) return null;
+      const tick = this.wavePhase === "active" ? this.waveTick : this.replay.runTick();
+      const count = (((tick % 5) + 5) % 5) + 1;
+      return { text: String(count), active: count === 1 };
+    }];
   }
 
   override getName() {
@@ -563,6 +570,11 @@ export class WavesRegion extends ColosseumRegion {
   private spawnReinforcements() {
     const pool = this.reinforcementMobPool;
     if (!pool) return;
+    if (!this.players[0]) {
+      // The player died before reinforcements were due.
+      this.reinforcementsSpawned = true;
+      return;
+    }
 
     let reinforcements: Mob[];
     if (this.losWaveImport) {

@@ -41,6 +41,8 @@ class PlayerEffects {
   poisoned = 0;
   venomed = 0;
   stamina = 0;
+  /** Ticks left on a prayer regeneration potion (restores 1 Prayer every 12 ticks). */
+  prayerRegeneration = 0;
 }
 
 // player can rotate this many JAUs per client tick
@@ -652,6 +654,13 @@ export class Player extends Unit {
     // Tick down stamina
     this.effects.stamina--;
     this.effects.stamina = Math.min(Math.max(this.effects.stamina, 0), 200);
+
+    if (this.effects.prayerRegeneration > 0) {
+      this.effects.prayerRegeneration--;
+      if (this.effects.prayerRegeneration % 12 === 0) {
+        this.currentStats.prayer = Math.min(this.stats.prayer, this.currentStats.prayer + 1);
+      }
+    }
 
     // Path to next position if not already there.
     if (

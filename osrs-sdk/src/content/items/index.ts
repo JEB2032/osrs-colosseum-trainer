@@ -8,3 +8,5 @@ export { StaminaPotion } from './StaminaPotion';
 export { SuperCombatPotion } from './SuperCombatPotion';
 export { SuperRestore } from './SuperRestore';
 export { ArmadylBrew } from './ArmadylBrew';
+export { RangingPotion } from "./RangingPotion";
+export { PrayerRegenerationPotion } from "./PrayerRegenerationPotion";

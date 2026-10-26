@@ -15,3 +15,4 @@ export { EyeOfAyak } from "./EyeOfAyak";
 export { TumekensShadow } from "./TumekensShadow";
 export { VenatorBow } from "./VenatorBow";
 export { ZombieAxe } from "./ZombieAxe";
+export { BlueMoonSpear } from "./BlueMoonSpear";
