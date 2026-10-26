@@ -4,6 +4,7 @@ import {
   cacheSound,
   ControlPanelController,
   Manticore,
+  Renderable,
   Region,
   Settings,
   Sound,
@@ -217,6 +218,18 @@ function WavesSidebar({ region }: { region: WavesRegion }) {
           onChange={(event) => colosseumSettings.set({ showMetronome: event.currentTarget.checked })}
         />
         Visual metronome (1–5)
+      </label>
+      <br />
+      <label>
+        <input
+          type="checkbox"
+          checked={settings.showNpcTiles}
+          onChange={(event) => {
+            colosseumSettings.set({ showNpcTiles: event.currentTarget.checked });
+            Renderable.tileHighlightsEnabled = event.currentTarget.checked;
+          }}
+        />
+        NPC tile highlights
       </label>
       <br />
       <label>

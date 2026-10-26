@@ -25,6 +25,8 @@ All game assets are property of Jagex. Not affiliated with Jagex.
 - **Real-fight loadout** (default on the waves page): Blue Moon helm/chest/tassets, tentacle, dragon
   defender, blood fury, Rada's blessing 4, infernal cape, barrows gloves, eternal boots, berserker
   ring (i); Crystal helm/body/legs, bowfa and Blue Moon spear switches; brews, restores, ranging, super combat, prayer regen.
+- **NPC tile highlights** (NPC Indicators style): berserker light blue, archer red, seer green,
+  shaman blue, jaguar red, javelin green, manticore green, shockwave blue, minotaur red.
 - **Visual metronome** infobox counting 1–5 (1 = the tick the NPCs spawned), and RuneLite-style
   hovered tile (yellow) and true tile (cyan) indicators.
 

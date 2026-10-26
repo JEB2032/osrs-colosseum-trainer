@@ -23,6 +23,8 @@ export type ColosseumSettingsState = {
   showManticoreTimer: boolean;
   /** Visual metronome infobox counting ticks 1-5. */
   showMetronome: boolean;
+  /** NPC Indicators-style coloured tiles under each NPC. */
+  showNpcTiles: boolean;
 };
 
 const STORAGE_KEY = "colosseum-trainer:settings";
@@ -40,6 +42,7 @@ const defaults: ColosseumSettingsState = {
   invocations: DEFAULT_INVOCATIONS,
   showManticoreTimer: false,
   showMetronome: true,
+  showNpcTiles: true,
 };
 
 const jsonStorage = createJsonSettingsStorage<ColosseumSettingsState>(STORAGE_KEY, 1);
@@ -77,6 +80,7 @@ const storage: SettingsStorage<ColosseumSettingsState> = {
       invocations: DEFAULT_INVOCATIONS,
       showManticoreTimer: false,
       showMetronome: true,
+      showNpcTiles: true,
     };
     jsonStorage.save(migrated);
     return migrated;

@@ -1,6 +1,7 @@
 import {
   cacheSound,
   DelayedAction,
+  Renderable,
   FixedLayout,
   Manticore,
   Player,
@@ -142,6 +143,23 @@ export const COLOSSEUM_SPAWN_POINTS = [
   { x: 38, y: 23 },
   { x: 38, y: 28 },
 ] as const;
+
+// NPC tile highlight colours (the player's RuneLite NPC Indicators setup).
+const LIGHT_BLUE = "#00C8FF";
+const RED = "#FF0000";
+const GREEN = "#00FF00";
+const BLUE = "#2050FF";
+const NPC_TILE_COLORS: Record<string, string> = {
+  "fremennik warband berserker": LIGHT_BLUE,
+  "fremennik warband archer": RED,
+  "fremennik warband seer": GREEN,
+  "serpent shaman": BLUE,
+  "jaguar warrior": RED,
+  "javelin colossus": GREEN,
+  manticore: GREEN,
+  "shockwave colossus": BLUE,
+  minotaur: RED,
+};
 
 // The A/B method's tiles beside the north-west pillar (pillar occupies x 18-20, y 17-19), and the
 // start tile five tiles south of it.
@@ -348,6 +366,7 @@ export class WavesRegion extends ColosseumRegion {
     reset.player.frozen = 2;
     this.applyInvocationsToPlayer(reset.player);
     Manticore.showAttackTimer = settings.showManticoreTimer;
+    Renderable.tileHighlightsEnabled = settings.showNpcTiles;
     FixedLayout.chatMessages = [];
     FixedLayout.addChatMessage(`Wave: ${this.selectedWave}`, "#7f0000");
     Viewport.viewport.rotateEast();
@@ -376,6 +395,11 @@ export class WavesRegion extends ColosseumRegion {
       player.stats.hitpoint = hitpoints;
       player.currentStats.hitpoint = hitpoints;
     }
+  }
+
+  override addMob(mob: Mob) {
+    mob.highlightColor = NPC_TILE_COLORS[mob.mobName().toLowerCase()] ?? null;
+    super.addMob(mob);
   }
 
   override onIncomingHit(unit: Unit, projectile: Projectile) {

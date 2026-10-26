@@ -76,6 +76,14 @@ export abstract class Renderable {
     return false;
   }
 
+  /**
+   * NPC-indicator style tile highlight (like RuneLite's NPC Indicators "tile" mode). When set, the
+   * true tile is drawn in this colour while `Renderable.tileHighlightsEnabled` is on.
+   */
+  highlightColor: string | null = null;
+
+  static tileHighlightsEnabled = true;
+
   /** Whether a currently playing action should compose with the pose now. */
   get shouldBlendAnimationWithPose(): boolean {
     return false;

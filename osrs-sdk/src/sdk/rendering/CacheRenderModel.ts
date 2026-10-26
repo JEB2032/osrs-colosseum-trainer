@@ -504,7 +504,8 @@ export class CacheRenderModel implements Model, RenderableListener {
       const trueLocation = this.renderable.getTrueLocation();
       drawLineOnTop(this.trueTile, this.renderable.trueTileRenderOrder ?? GroundOverlayRenderOrder.TRUE_TILE);
       this.trueTile.position.set(trueLocation.x, GROUND_OVERLAY_Y, trueLocation.y);
-      const trueTileColor = Settings.trueTileColor;
+      const highlightColor = Renderable.tileHighlightsEnabled ? this.renderable.highlightColor : null;
+      const trueTileColor = highlightColor ?? Settings.trueTileColor;
       (this.trueTile.material as THREE.LineBasicMaterial).color.set(trueTileColor);
       const indicatorCoversTrueTile = this.outline?.visible
         && Settings.entityIndicatorEnabled
@@ -512,8 +513,7 @@ export class CacheRenderModel implements Model, RenderableListener {
         && location.y === trueLocation.y;
       this.trueTile.visible = this.renderable.drawTrueTile
         && visible
-        && Settings.trueTileEnabled
-        && !indicatorCoversTrueTile;
+        && (highlightColor !== null || (Settings.trueTileEnabled && !indicatorCoversTrueTile));
     }
     this.root.children.forEach((child, index) => {
       const offset = modelOffsets[index]; child.position.set(offset?.x ?? 0, offset?.z ?? 0, offset?.y ?? 0);
