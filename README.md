@@ -18,7 +18,7 @@ All game assets are property of Jagex. Not affiliated with Jagex.
   Dynamic Duo, Quartet.
 - **Death replay**: every run is recorded (RNG seed + inputs per tick) and the last 30 seconds
   can be re-simulated in full 3D with play/pause, ±ticks, scrubbing and 0.25–2× speed.
-- **Hotkeys**: Ctrl+R restart, Space start wave / pause replay. F-keys are rebindable in the
+- **Hotkeys**: Ctrl+R restart, Space start wave / pause replay, Ctrl+click to walk (or run, if run is off). F-keys are rebindable in the
   in-game Settings tab.
 - **Javelin toss** (every 5th Javelin Colossus attack lands on your tile 6 ticks later, up to 40
   typeless) and **Minotaur heal** (heals NPCs under 75% within 7 tiles/LoS while you're out of melee).

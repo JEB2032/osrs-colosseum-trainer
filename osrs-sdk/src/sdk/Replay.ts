@@ -5,7 +5,7 @@
  * by one of these so a run can be re-simulated from its RNG seed, which is how death replays work.
  */
 export type ReplayAction =
-  | { kind: "walk"; x: number; y: number }
+  | { kind: "walk"; x: number; y: number; invertRun?: boolean }
   | { kind: "attackMob"; mob: number }
   | { kind: "interrupt" }
   | { kind: "unequip"; slot: string }

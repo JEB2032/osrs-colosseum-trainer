@@ -14,7 +14,7 @@ export class ReplayPlayback {
     if (!player) return;
     switch (action.kind) {
       case "walk":
-        Trainer.clickController.playerWalkClick(action.x, action.y);
+        Trainer.clickController.playerWalkClick(action.x, action.y, action.invertRun === true);
         break;
       case "attackMob": {
         const region = player.region;

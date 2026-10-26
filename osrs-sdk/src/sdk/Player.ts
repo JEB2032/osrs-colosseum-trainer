@@ -66,6 +66,15 @@ export class Player extends Unit {
   xpDrops: XpDrop[] = [];
   overhead: BasePrayer;
   running = true;
+
+  /** Ctrl+click: the current walk uses the opposite of the run setting (walk while running). */
+  invertRunForMove = false;
+
+  get runningThisMove() {
+    if (!this.invertRunForMove) return this.running;
+    // Ctrl+click with run off only runs if there is energy to run with.
+    return !this.running && this.currentStats.run > 0;
+  }
   cachedBonuses: UnitBonuses = null;
   useSpecialAttack = false;
   effects = new PlayerEffects();
@@ -126,6 +135,7 @@ export class Player extends Unit {
   }
 
   interruptCombat() {
+    this.invertRunForMove = false;
     // Cancelling an attack while stationary should not reset facing to the
     // travel/resting heading. Preserve the last target-facing angle first.
     if (this.aggro) {
@@ -330,8 +340,9 @@ export class Player extends Unit {
     this.clearXpDrops();
   }
 
-  moveTo(x: number, y: number) {
+  moveTo(x: number, y: number, invertRun = false) {
     this.interruptCombat();
+    this.invertRunForMove = invertRun;
 
     this.manualSpellCastSelection = null;
 
@@ -612,7 +623,7 @@ export class Player extends Unit {
     // Pre-calculate the movement to determine actual speed used
     let actualMovementSpeed = 1; // default to walk
     if (willMoveThisTick) {
-      const speed = this.running ? 2 : 1;
+      const speed = this.runningThisMove ? 2 : 1;
       const { path } = Pathing.path(this.region, this.location, this.destinationLocation, speed, this.aggro);
 
       // Actual movement speed is how many tiles we'll move this tick
@@ -624,7 +635,7 @@ export class Player extends Unit {
     }
 
     // Energy only drains when ACTUALLY running (moving 2 tiles this tick)
-    if (this.running && willMoveThisTick && actualMovementSpeed === 2) {
+    if (this.runningThisMove && willMoveThisTick && actualMovementSpeed === 2) {
       // New energy drain formula: ⌊60 + 67 * clamp[0,64](weight) / 64⌋ * (1 - agility / 300)
       const clampedWeight = Math.min(Math.max(0, this.weight), 64);
       const baseReduction = Math.floor(60 + (67 * clampedWeight) / 64);
@@ -671,7 +682,7 @@ export class Player extends Unit {
       return;
     }
 
-    const speed = this.running ? 2 : 1;
+    const speed = this.runningThisMove ? 2 : 1;
 
     const { path, destination } = Pathing.path(this.region, this.location, this.destinationLocation, speed, this.aggro);
     this.pathTargetLocation = destination;
@@ -695,14 +706,14 @@ export class Player extends Unit {
     // Walking advances one authoritative tile per server tick; running may
     // advance two. Do not enqueue the second look-ahead tile for a walker or
     // the visual queue grows faster than the true tile and falls behind.
-    const visualSteps = path.slice(0, this.running ? 2 : 1);
+    const visualSteps = path.slice(0, this.runningThisMove ? 2 : 1);
     if (this.consumesSpace) {
       visualSteps.forEach(({ x, y }) => this.region.clearTileCollisionFlags(x, y, this.size));
       this.region.setTileCollisionFlags(this.location.x, this.location.y, this.size);
     }
     const newTiles = visualSteps.map((pos) => ({
       ...pos,
-      run: this.running && path.length >= 2,
+      run: this.runningThisMove && path.length >= 2,
     }));
     if (ENABLE_POSITION_DEBUG) {
       newTiles.forEach((tile) => {

@@ -284,7 +284,12 @@ export class ClickController {
     } else if (x !== null && y !== null) {
       this.yellowClick();
       player.showTargetMarker({ x: Math.floor(x), y: Math.floor(y) });
-      inputController.queueAction(() => this.playerWalkClick(x, y), () => ({ kind: "walk", x, y }));
+      // Ctrl+click walks (or runs, if run is off) for this click only, as in the OSRS client.
+      const invertRun = e.ctrlKey;
+      inputController.queueAction(
+        () => this.playerWalkClick(x, y, invertRun),
+        () => ({ kind: "walk", x, y, ...(invertRun ? { invertRun } : {}) }),
+      );
     }
     Viewport.viewport.contextMenu.setInactive();
   }
@@ -369,8 +374,8 @@ export class ClickController {
     Trainer.player.setAggro(mob);
   }
 
-  playerWalkClick(x: number, y: number) {
-    Trainer.player.moveTo(Math.floor(x), Math.floor(y));
+  playerWalkClick(x: number, y: number, invertRun = false) {
+    Trainer.player.moveTo(Math.floor(x), Math.floor(y), invertRun);
   }
 
   redClick() {
