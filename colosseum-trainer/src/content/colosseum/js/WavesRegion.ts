@@ -1,5 +1,6 @@
 import {
   cacheSound,
+  DelayedAction,
   FixedLayout,
   Manticore,
   Player,
@@ -34,7 +35,11 @@ import {
 } from "./mobs";
 import { withWaveSpawnPathing } from "./mobs/WaveSpawnPathing";
 import { decodeLosWaveUrl, translateLosCoordinate, type LosMobSpec, type LosWaveImport } from "./LosWaveUrl";
+import { SolarFlareOrb } from "./entities/SolarFlareOrb";
+import { MoltenSand } from "./entities/MoltenSand";
 import {
+  VOLATILITY_EXTRA_TILES,
+  VOLATILITY_MAX_HIT,
   BLASPHEMY_DRAIN_RATIO,
   DOOM_LETHAL_STACKS,
   FRAILTY_HP_REDUCTION,
@@ -298,6 +303,14 @@ export class WavesRegion extends ColosseumRegion {
     this.addEntity(new TileMarker(this, { ...A_TILE }, "#00FFFF", 1, false));
     this.addEntity(new TileMarker(this, { ...B_TILE }, "#FF00FF", 1, false));
 
+    // Solarflare: one orb on the 5x5 ring around each pillar (pillar SW anchors above).
+    const solarflare = this.runConfig.invocations.solarflare;
+    if (solarflare > 0) {
+      [{ x: 18, y: 19 }, { x: 33, y: 19 }, { x: 18, y: 34 }, { x: 33, y: 34 }].forEach((pillar) => {
+        this.addEntity(new SolarFlareOrb(this, { x: pillar.x - 1, y: pillar.y - 3 }, solarflare, 0));
+      });
+    }
+
     if (Settings.use3dView) {
       this.addEntity(new ColosseumScene(this, { x: 0, y: 0 }));
     }
@@ -376,7 +389,7 @@ export class WavesRegion extends ColosseumRegion {
       player.currentStats.prayer = Math.max(0, player.currentStats.prayer - drain);
     }
 
-    if (invocations.doom > 0) {
+    if (invocations.doom > 0 && damage > 0) {
       this.doomStacks++;
       if (this.doomStacks >= DOOM_LETHAL_STACKS[invocations.doom]) {
         FixedLayout.addChatMessage("The weight of doom crushes you.", "#ff0000");
@@ -399,9 +412,37 @@ export class WavesRegion extends ColosseumRegion {
   }
 
   override onUnitDeath(unit: Unit) {
-    if (unit !== this.players[0]) return;
+    if (unit !== this.players[0]) {
+      this.explodeOnDeath(unit);
+      return;
+    }
     FixedLayout.addChatMessage("Oh dear, you are dead!", "#000000");
     this.replay.playerDied();
+  }
+
+  /** Volatility: a square explosion one or two tiles beyond the NPC, when its death animation ends. */
+  private explodeOnDeath(unit: Unit) {
+    const tier = this.runConfig.invocations.volatility;
+    if (tier === 0 || !(unit as Mob).mobName) return;
+    const extra = VOLATILITY_EXTRA_TILES[tier];
+    const size = unit.size + extra * 2;
+    // Units are anchored on their south-west tile; the area extends `extra` beyond each side.
+    const anchor = { x: unit.location.x - extra, y: unit.location.y + extra };
+    const centre = { x: unit.location.x + Math.floor(unit.size / 2), y: unit.location.y - Math.floor(unit.size / 2) };
+    const marker = new TileMarker(this, { ...anchor }, "#FF8000", size, false);
+    this.addEntity(marker);
+    DelayedAction.registerDelayedNpcAction(new DelayedAction(() => {
+      this.removeEntity(marker);
+      const player = this.players[0];
+      if (player && player.dying < 0) {
+        const { x, y } = player.location;
+        if (x >= anchor.x && x < anchor.x + size && y <= anchor.y && y > anchor.y - size) {
+          const damage = Math.floor(Random.get() * (VOLATILITY_MAX_HIT + 1));
+          player.addProjectile(new Projectile(null, damage, player, player, "typeless", { setDelay: 0 }));
+        }
+      }
+      if (tier >= 3) this.addEntity(new MoltenSand(this, centre));
+    }, Math.max(1, unit.deathAnimationLength)));
   }
 
   private tickInvocations() {

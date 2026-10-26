@@ -14,7 +14,8 @@ All game assets are property of Jagex. Not affiliated with Jagex.
   panel, chatbox. Toggle in the sidebar.
 - **Waves trainer as the main page**: wave 10/11 picker, force double south (on by default),
   start on the AB start tile (5 south of the NW pillar) with A/B/start tile markers.
-- **Invocations**: Mantimayhem I–III, Frailty, Blasphemy, Doom, Myopia, Dynamic Duo, Quartet.
+- **Invocations**: Mantimayhem, Frailty, Blasphemy, Doom, Myopia, Solarflare and Volatility (I–III),
+  Dynamic Duo, Quartet.
 - **Death replay**: every run is recorded (RNG seed + inputs per tick) and the last 30 seconds
   can be re-simulated in full 3D with play/pause, ±ticks, scrubbing and 0.25–2× speed.
 - **Hotkeys**: Ctrl+R restart, Space start wave / pause replay. F-keys are rebindable in the
@@ -53,5 +54,7 @@ On Windows, set `npm_config_script_shell` to Git Bash so the `rm -rf` scripts wo
 
 - Minotaur heal interval isn't documented; it's assumed to run on its 5-tick attack timer.
 - Blue Moon spear autocasts Blood Barrage; Frostweaver and its special attack aren't simulated.
-- Bees!, Volatility, Reentry, Relentless, Solarflare, Totemic and Red Flag are not simulated.
+- Bees!, Reentry, Relentless, Totemic and Red Flag are not simulated.
+- Volatility damage (up to 20) and timing (when the death animation ends) are assumptions; the wiki
+  only documents the explosion size. Solarflare orb start corners/direction are also assumed.
 - Fonts and a few weapon models load from the upstream trainers' CDNs.

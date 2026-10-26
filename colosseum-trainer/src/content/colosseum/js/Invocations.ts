@@ -13,6 +13,10 @@ export type InvocationState = {
   doom: 0 | 1 | 2 | 3;
   /** Player attack range reduced by 2 / 4 / 6 tiles. */
   myopia: 0 | 1 | 2 | 3;
+  /** An orb circles each pillar: I every 2 ticks + 7-tick corner stops, II no stops, III every tick + prayer disable. */
+  solarflare: 0 | 1 | 2 | 3;
+  /** Enemies explode on death, 1 / 2 tiles beyond their size; III leaves molten sand. */
+  volatility: 0 | 1 | 2 | 3;
   /** Shockwave Colossi spawn in pairs. */
   dynamicDuo: boolean;
   /** One extra Fremennik warbander spawns every wave. */
@@ -25,6 +29,8 @@ export const DEFAULT_INVOCATIONS: InvocationState = {
   blasphemy: 0,
   doom: 0,
   myopia: 0,
+  solarflare: 0,
+  volatility: 0,
   dynamicDuo: false,
   quartet: false,
 };
@@ -35,6 +41,8 @@ export const TIERED_INVOCATIONS: { key: keyof InvocationState; label: string; ti
   { key: "blasphemy", label: "Blasphemy", tiers: ["20% of damage drains prayer", "40%", "60%"] },
   { key: "doom", label: "Doom", tiers: ["Die at 15 stacks", "Die at 10 stacks", "Die at 5 stacks"] },
   { key: "myopia", label: "Myopia", tiers: ["-2 attack range", "-4 attack range", "-6 attack range"] },
+  { key: "solarflare", label: "Solarflare", tiers: ["Orb every 2 ticks, stops 7 at corners", "Every 2 ticks, no stops", "Every tick, disables prayers"] },
+  { key: "volatility", label: "Volatility", tiers: ["Death explosion size +1", "Death explosion size +2", "+ molten sand"] },
 ];
 
 export const TOGGLE_INVOCATIONS: { key: keyof InvocationState; label: string; description: string }[] = [
@@ -43,7 +51,12 @@ export const TOGGLE_INVOCATIONS: { key: keyof InvocationState; label: string; de
 ];
 
 /** Offered in game but not simulated yet. */
-export const UNSUPPORTED_INVOCATIONS = ["Bees!", "Volatility", "Reentry", "Relentless", "Solarflare", "Totemic", "Red Flag"];
+export const UNSUPPORTED_INVOCATIONS = ["Bees!", "Reentry", "Relentless", "Totemic", "Red Flag"];
+
+// Volatility: the wiki gives the explosion size but not its damage or timing. Assumed: it goes off
+// when the death animation finishes (so it can be dodged) and hits for up to 20 typeless damage.
+export const VOLATILITY_EXTRA_TILES = [0, 1, 2, 2];
+export const VOLATILITY_MAX_HIT = 20;
 
 /** Fraction of base Hitpoints removed; the removed amount is rounded down (99 HP -> 90 / 80 / 60). */
 export const FRAILTY_HP_REDUCTION = [0, 0.1, 0.2, 0.4];
@@ -60,6 +73,8 @@ export function sanitizeInvocations(value: unknown): InvocationState {
     blasphemy: tier(input.blasphemy),
     doom: tier(input.doom),
     myopia: tier(input.myopia),
+    solarflare: tier(input.solarflare),
+    volatility: tier(input.volatility),
     dynamicDuo: input.dynamicDuo === true,
     quartet: input.quartet === true,
   };
