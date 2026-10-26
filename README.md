@@ -23,7 +23,7 @@ All game assets are property of Jagex. Not affiliated with Jagex.
   typeless) and **Minotaur heal** (heals NPCs under 75% within 7 tiles/LoS while you're out of melee).
 - **Real-fight loadout** (default on the waves page): Blue Moon helm/chest/tassets, tentacle, dragon
   defender, blood fury, Rada's blessing 4, infernal cape, barrows gloves, eternal boots, berserker
-  ring (i); Torva/bowfa/Blue Moon spear switches; brews, restores, ranging, super combat, prayer regen.
+  ring (i); Crystal helm/body/legs, bowfa and Blue Moon spear switches; brews, restores, ranging, super combat, prayer regen.
 - **Visual metronome** infobox counting 1–5 (1 = the tick the NPCs spawned), and RuneLite-style
   hovered tile (yellow) and true tile (cyan) indicators.
 
@@ -52,6 +52,6 @@ On Windows, set `npm_config_script_shell` to Git Bash so the `rm -rf` scripts wo
 ## Known gaps
 
 - Minotaur heal interval isn't documented; it's assumed to run on its 5-tick attack timer.
-- Blue Moon spear autocasts Ice Barrage; Frostweaver and its special attack aren't simulated.
+- Blue Moon spear autocasts Blood Barrage; Frostweaver and its special attack aren't simulated.
 - Bees!, Volatility, Reentry, Relentless, Solarflare, Totemic and Red Flag are not simulated.
 - Fonts and a few weapon models load from the upstream trainers' CDNs.

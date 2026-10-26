@@ -113,13 +113,13 @@ export const realFightLoadout: Loadout = {
     ring: CACHE_ASSETS.items.berserkerRingI.id,
   },
   inventory: [
-    CACHE_ASSETS.items.torvaPlatebody.id,
+    CACHE_ASSETS.items.crystalBody.id,
     CACHE_ASSETS.items.bowOfFaerdhinen.id,
     CACHE_ASSETS.items.blueMoonSpear.id,
     CACHE_ASSETS.items.saradominBrew.id,
 
-    CACHE_ASSETS.items.torvaFullHelm.id,
-    CACHE_ASSETS.items.torvaPlatelegs.id,
+    CACHE_ASSETS.items.crystalHelm.id,
+    CACHE_ASSETS.items.crystalLegs.id,
     CACHE_ASSETS.items.saradominBrew.id,
     CACHE_ASSETS.items.saradominBrew.id,
 

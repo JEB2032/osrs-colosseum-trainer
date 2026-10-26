@@ -3,12 +3,12 @@ import { MeleeWeapon } from "../../sdk/weapons/MeleeWeapon";
 import { ItemName } from "../../sdk/ItemName";
 import { AttackStyle, AttackStyleTypes } from "../../sdk/AttackStylesController";
 import { BarrageSpell } from "../../sdk/weapons/BarrageSpell";
-import { IceBarrageSpell } from "../../sdk/weapons/IceBarrageSpell";
+import { BloodBarrageSpell } from "../../sdk/weapons/BloodBarrageSpell";
 import { AttackBonuses } from "../../sdk/gear/Weapon";
 import { Unit } from "../../sdk/Unit";
 import { CACHE_ASSETS } from "../../assets/CacheAssets";
 
-/** Blue Moon spear: a 5-tick spear that can autocast (here: Ice Barrage, 10 tiles). */
+/** Blue Moon spear: a 5-tick spear that can autocast (here: Blood Barrage, 10 tiles). */
 export class BlueMoonSpear extends MeleeWeapon {
   override get equipSoundId(): number {
     return CACHE_ASSETS.sounds.equipStaff.id;
@@ -18,7 +18,7 @@ export class BlueMoonSpear extends MeleeWeapon {
     return CACHE_ASSETS.items.blueMoonSpear.id;
   }
 
-  autocastSpell: BarrageSpell = new IceBarrageSpell();
+  autocastSpell: BarrageSpell = new BloodBarrageSpell();
 
   constructor() {
     super();
