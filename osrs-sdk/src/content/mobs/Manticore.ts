@@ -1,0 +1,405 @@
+import CheckmarkGreenIcon from "../../assets/images/interface/resource-pack/icon/checkmark_green.png";
+import { DelayedAction } from "../../sdk/DelayedAction";
+import { cacheSound } from "../../sdk/audio/CacheSoundEffects";
+import { Mob } from "../../sdk/Mob";
+import { UILayerProjector } from "../../sdk/Renderable";
+import { UnitBonuses } from "../../sdk/Unit";
+import { CacheRenderModel } from "../../sdk/rendering/CacheRenderModel";
+import { CacheRenderReferences } from "../../sdk/rendering/CacheRenderReference";
+import { Model } from "../../sdk/rendering/Model";
+import { MagicWeapon } from "../../sdk/weapons/MagicWeapon";
+import { MeleeWeapon } from "../../sdk/weapons/MeleeWeapon";
+import { RangedWeapon } from "../../sdk/weapons/RangedWeapon";
+import { ImageLoader } from "../../sdk/utils/ImageLoader";
+import { Sound } from "../../sdk/utils/SoundCache";
+import { Random } from "../../sdk/Random";
+
+/** Semantic pose indices mapped to the cache sequences extracted for NPC 12818. */
+export enum ManticoreAnimations {
+  Idle = 0,
+  Walk = 1,
+  TripleCharge = 2,
+  TripleThrow = 3,
+  Death = 4,
+}
+
+enum Orbs {
+  Range,
+  Mage,
+  Melee
+};
+
+const ORB_TO_SPOTANIM = {
+  [Orbs.Range]: 2683,
+  [Orbs.Mage]: 2681,
+  [Orbs.Melee]: 2685,
+};
+
+// dunno if these change
+const TRIPLE_THROW_PROJECTILE_SOUND = 8382;
+const ORB_TO_PROJECTILE_SOUND = {
+  [Orbs.Range]: 8382,
+  [Orbs.Mage]: 8382,
+  [Orbs.Melee]: 8382,
+};
+
+const ORB_HEIGHT_1 = 7;
+const ORB_HEIGHT_2 = 9;
+const ORB_HEIGHT_3 = 11;
+const PROJECTILE_FLIGHT_CLIENT_CYCLES = 30;
+
+/**
+ * The Fortis Colosseum manticore (NPC definition 12818).
+ *
+ * This is a reference implementation of the Manticore's combat and visuals.
+ * Consumers are responsible for declaring NPC 12818, its sequences, and the
+ * three orb spotanims, and projectile sounds 8406, 8400, and 8383 in their
+ * own cache asset manifest.
+ */
+export class Manticore extends Mob {
+  static readonly NPC_ID = 12818;
+
+  /**
+   * Colosseum Mantimayhem modifier level (0 = off). I: every orb hits twice.
+   * II: unprotected hits also venom (applied by the region). III: any orb order.
+   */
+  static mayhemLevel = 0;
+
+  /** Trainer aid (not in the real client): draw the charge countdown above the head. */
+  static showAttackTimer = true;
+
+  private readonly attackReadyImage = ImageLoader.createImage(CheckmarkGreenIcon);
+
+  private attackStyles: Orbs[] | null = null;
+  private preselectedAttackStyles: Orbs[] | null = null;
+
+  private hasAttacked = false;
+
+  override mobName() {
+    return "Manticore";
+  }
+
+  override get combatLevel() {
+    return 320;
+  }
+
+  override setStats() {
+    this.weapons = {
+      crush: new MeleeWeapon({ visuals: { hidden: false } }),
+      range: new RangedWeapon(),
+      magic: new MagicWeapon(),
+    };
+
+    this.stats = {
+      attack: 300,
+      strength: 300,
+      defence: 250,
+      range: 350,
+      magic: 300,
+      hitpoint: 250,
+    };
+    this.currentStats = JSON.parse(JSON.stringify(this.stats));
+  }
+
+  override get bonuses(): UnitBonuses {
+    return {
+      attack: {
+        stab: 0,
+        slash: 0,
+        crush: 0,
+        magic: 0,
+        range: 0,
+      },
+      defence: {
+        stab: 0,
+        slash: 0,
+        crush: 0,
+        magic: 10,
+        range: 25,
+      },
+      other: {
+        meleeStrength: 0,
+        rangedStrength: 0,
+        // The SDK represents the NPC's unmodified magic damage multiplier as 1.
+        magicDamage: 1,
+        prayer: 0,
+      },
+    };
+  }
+
+  override get attackSpeed() {
+    return 10;
+  }
+
+  override get attackRange() {
+    return 15;
+  }
+
+  override get size() {
+    return 3;
+  }
+
+  override get flinchDelay() {
+    return 0;
+  }
+
+  override attackStyleForNewAttack() {
+    // not used
+    return "range";
+  }
+
+  override attack() {
+    if (!this.attackStyles) {
+      this.selectAttackStyle();
+      this.attackDelay = 10;
+      return false;
+    }
+    return true;
+  }
+
+  override didAttack() {
+    if (!this.attackStyles) {
+      // shouldn't happen
+      return;
+    }
+    // override default behaviour
+    this.attackDelay = 10;
+    this.region.mobs.forEach((mob) => {
+      if (!(mob instanceof Manticore) || mob === this || mob.attackStyles === null) return;
+
+      if (mob.attackDelay <= 0) mob.attackDelay = 5;
+    });
+    this.playAnimation(ManticoreAnimations.TripleThrow);
+    // The first projectile is launched on the attack tick.
+    this.fireProjectile(0);
+    this.clearSpotAnim("first-orb");
+    DelayedAction.registerDelayedNpcAction(new DelayedAction(() => {
+      this.fireProjectile(1);
+      this.clearSpotAnim("second-orb");
+    }, 1));
+    DelayedAction.registerDelayedNpcAction(new DelayedAction(() => {
+      this.fireProjectile(2);
+      this.clearSpotAnim("third-orb");
+    }, 2));
+    this.hasAttacked = true;
+  }
+
+  private selectKnownAttackStyle(): Orbs[] | null {
+    if (this.attackStyles) {
+      return this.attackStyles;
+    }
+    if (this.preselectedAttackStyles) {
+      this.attackStyles = [...this.preselectedAttackStyles];
+      return this.attackStyles;
+    }
+    const coordinatedManticore = this.region.mobs.find((mob) =>
+      mob instanceof Manticore
+      && mob !== this
+      && mob.dying < 0
+      && mob.currentStats.hitpoint > 0
+      && mob.attackStyles !== null
+    ) as Manticore | undefined;
+    if (coordinatedManticore?.attackStyles) {
+      this.attackStyles = [...coordinatedManticore.attackStyles];
+      return this.attackStyles;
+    }
+
+    return null;
+  }
+
+  private selectAttackStyle(): Orbs[] {
+    const knownAttackStyles = this.selectKnownAttackStyle();
+    if (knownAttackStyles) {
+      return knownAttackStyles;
+    }
+
+    if (Manticore.mayhemLevel >= 3) {
+      // Mantimayhem III: any permutation, melee no longer has to be last.
+      const orbs = [Orbs.Range, Orbs.Mage, Orbs.Melee];
+      for (let index = orbs.length - 1; index > 0; index--) {
+        const swapIndex = Math.floor(Random.get() * (index + 1));
+        [orbs[index], orbs[swapIndex]] = [orbs[swapIndex], orbs[index]];
+      }
+      this.attackStyles = orbs;
+      return this.attackStyles;
+    }
+
+    this.attackStyles = [];
+    // 50% chance of range or mage first
+    const firstStyle = Random.get() < 0.5 ? Orbs.Range : Orbs.Mage;
+    this.attackStyles.push(firstStyle);
+    if (firstStyle === Orbs.Range) {
+      this.attackStyles.push(Orbs.Mage, Orbs.Melee);
+    } else {
+      this.attackStyles.push(Orbs.Range, Orbs.Melee);
+    }
+    return this.attackStyles;
+  }
+
+  override attackStep() {
+    super.attackStep();
+    if (this.aggro && this.hasLOS && !this.attackStyles) {
+      this.selectAttackStyle();
+      this.attackDelay = 10;
+    }
+    if (this.attackStyles?.length === 3) {
+      if (this.attackDelay === 6) {
+        this.playAnimation(ManticoreAnimations.TripleCharge);
+      }
+      if (this.attackDelay <= 5) {
+        this.playChargedOrb(0, ORB_HEIGHT_1, "first-orb");
+      }
+      if (this.attackDelay <= 4 || (this.hasAttacked && this.attackDelay >= 10)) {
+        this.playChargedOrb(1, ORB_HEIGHT_2, "second-orb");
+      }
+      if (this.attackDelay <= 3 || (this.hasAttacked && this.attackDelay >= 9)) {
+        this.playChargedOrb(2, ORB_HEIGHT_3, "third-orb");
+      }
+    }
+  }
+
+  /** Show the coloured orb charging above the Manticore's head. */
+  private playChargedOrb(index: number, height: number, channel: string) {
+    const orb = this.attackStyles?.[index];
+    if (orb === undefined) return;
+    this.addSpotAnim({ id: ORB_TO_SPOTANIM[orb], channel, height });
+  }
+
+  /** Launch the coloured orb as a projectile. */
+  private fireProjectile(index: number) {
+    if (!this.attackStyles) {
+      return;
+    }
+    const orb = this.attackStyles[index];
+    const target = this.aggro;
+    if (orb === undefined || !target) return;
+
+    const spotAnimId = ORB_TO_SPOTANIM[orb];
+    const attackStyle = orb === Orbs.Range ? "range" : orb === Orbs.Mage ? "magic" : "crush";
+    const weapon = this.weapons[attackStyle];
+    // Mantimayhem I+: each orb hits twice on the same tick.
+    const hits = Manticore.mayhemLevel >= 1 ? 2 : 1;
+    for (let hit = 0; hit < hits; hit++) this.fireOrbHit(weapon, attackStyle, target, spotAnimId, orb);
+  }
+
+  private fireOrbHit(weapon, attackStyle, target, spotAnimId: number, orb: Orbs) {
+    weapon.attack(
+      this,
+      target,
+      {
+        attackStyle,
+        magicBaseSpellDamage: attackStyle === "magic" ? this.magicMaxHit() : undefined,
+      },
+      {
+        // Projectiles added during attackStep are processed once immediately
+        // by World.tickRegion, so delay 2 means one full tick after spawning.
+        setDelay: 2,
+        visuals: {
+          spotAnim: { id: spotAnimId },
+          projectileSound: new Sound(cacheSound(ORB_TO_PROJECTILE_SOUND[orb]), 0.1),
+          // Every orb visually reaches its target one game tick after launch,
+          // regardless of the distance-derived combat hit delay.
+          endCycleOffset: PROJECTILE_FLIGHT_CLIENT_CYCLES,
+        },
+      },
+    );
+  }
+
+  /**
+   * Apply a specific attack sequence by string: (r)ange/(m)age/(M)elee. TODO: should just pass
+   * an array in instead of decoding strings here.
+   */
+  setAttackPattern(pattern: string) {
+    const startsUncharged = pattern.startsWith("u");
+    const normalized = startsUncharged ? pattern.slice(1) : pattern;
+    const expanded = normalized === "r" ? "rmM" : normalized === "m" ? "mrM" : normalized;
+    const orbByCode: Record<string, Orbs> = { r: Orbs.Range, m: Orbs.Mage, M: Orbs.Melee };
+    const decoded = expanded.split("").map((code) => orbByCode[code]);
+    if (decoded.length === 3 && decoded.every((orb) => orb !== undefined)) {
+      if (startsUncharged) {
+        this.preselectedAttackStyles = decoded;
+        this.attackDelay = 10;
+      } else {
+        this.attackStyles = decoded;
+      }
+    }
+  }
+
+  override get idlePoseId() {
+    return ManticoreAnimations.Idle;
+  }
+
+  override get walkingPoseId() {
+    return ManticoreAnimations.Walk;
+  }
+
+  /** Semantic index for the charge-up phase of the triple attack. */
+  get tripleChargeAnimationId() {
+    return ManticoreAnimations.TripleCharge;
+  }
+
+  /** Semantic index for the projectile throw phase of the triple attack. */
+  get tripleThrowAnimationId() {
+    return ManticoreAnimations.TripleThrow;
+  }
+
+  override get deathAnimationId() {
+    return ManticoreAnimations.Death;
+  }
+
+  override get deathAnimationLength() {
+    return 4;
+  }
+
+  override canMeleeIfClose() {
+    return "crush" as const;
+  }
+
+  override magicMaxHit() {
+    return 31;
+  }
+
+  /** Highest of the manticore's three style max hits (ranged). */
+  override get maxHit() {
+    return 36;
+  }
+
+  override create3dModel(): Model {
+    return CacheRenderModel.forRenderable(this, CacheRenderReferences.npc(Manticore.NPC_ID));
+  }
+
+  override drawUILayer(
+    tickPercent: number,
+    projector: UILayerProjector,
+    context: OffscreenCanvasRenderingContext2D,
+    scale: number,
+  ) {
+    super.drawUILayer(tickPercent, projector, context, scale);
+    if (!projector.visible || !Manticore.showAttackTimer) return;
+
+    // draw attack delay
+    const hitsplatPosition = projector.atHeight(projector.logicalHeight * 0.5);
+    context.save();
+    context.translate(hitsplatPosition.x, hitsplatPosition.y);
+    if (!this.attackStyles && !this.preselectedAttackStyles) {
+      context.font = "18px Stats_11";
+      context.textAlign = "center";
+      context.lineWidth = 3;
+      context.strokeStyle = "#000000";
+      context.strokeText("?", 0, 42);
+      context.fillStyle = "#FFFF00";
+      context.fillText("?", 0, 42);
+    } else if (this.attackDelay <= 0) {
+      context.drawImage(this.attackReadyImage, -6, 28);
+    } else {
+      context.font = "18px Stats_11";
+      context.textAlign = "center";
+      context.lineWidth = 3;
+      context.strokeStyle = "#000000";
+      context.strokeText(String(this.attackDelay), 0, 42);
+      context.fillStyle = "#FFFF00";
+      context.fillText(String(this.attackDelay), 0, 42);
+    }
+    context.restore();
+  }
+}

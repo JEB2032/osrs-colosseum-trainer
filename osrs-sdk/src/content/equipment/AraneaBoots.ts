@@ -1,0 +1,53 @@
+import { Feet } from "../../sdk/gear/Feet";
+import { ImageLoader } from "../../sdk/utils/ImageLoader";
+import InventImage from "../../assets/images/equipment/Aranea_boots.png";
+import { ItemName } from "../../sdk/ItemName";
+import { Assets } from "../../sdk/utils/Assets";
+
+import { CACHE_ASSETS } from "../../assets/CacheAssets";
+export class AraneaBoots extends Feet {
+  get cacheItemId(): number {
+    return CACHE_ASSETS.items.araneaBoots.id;
+  }
+  inventorySprite: HTMLImageElement = ImageLoader.createImage(this.inventoryImage);
+
+  get inventoryImage() {
+    return InventImage;
+  }
+  get itemName(): ItemName {
+    return ItemName.ARANEA_BOOTS;
+  }
+  get weight(): number {
+    return 1.0;
+  }
+
+  constructor() {
+    super();
+    this.bonuses = {
+      attack: {
+        stab: 0,
+        slash: 0,
+        crush: 0,
+        magic: 5,
+        range: 6,
+      },
+      defence: {
+        stab: 0,
+        slash: 0,
+        crush: 0,
+        magic: 0,
+        range: 0,
+      },
+      other: {
+        meleeStrength: 4,
+        rangedStrength: 0,
+        magicDamage: 0,
+        prayer: 1,
+      },
+      targetSpecific: {
+        undead: 0,
+        slayer: 0,
+      },
+    };
+  }
+}

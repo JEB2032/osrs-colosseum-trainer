@@ -1,0 +1,176 @@
+import ScytheInventImage from "../../assets/images/weapons/scytheOfVitur.png";
+import { AttackStyle, AttackStyleTypes } from "../../sdk/AttackStylesController";
+import { ItemName } from "../../sdk/ItemName";
+import { PlayerAnimationIndices } from "../../sdk/rendering/GLTFAnimationConstants";
+import { Assets } from "../../sdk/utils/Assets";
+import { Sound } from "../../sdk/utils/SoundCache";
+import { MeleeWeapon } from "../../sdk/weapons/MeleeWeapon";
+
+import { cacheSound } from "../../sdk/audio/CacheSoundEffects";
+import { CACHE_ASSETS } from "../../assets/CacheAssets";
+import { Collision } from "../../sdk/Collision";
+import { AttackBonuses } from "../../sdk/gear/Weapon";
+import { Unit } from "../../sdk/Unit";
+import { Player } from "../../sdk/Player";
+import { GraphicsObject } from "../../sdk/GraphicsObject";
+
+const EXTRA_HIT_LOCATIONS = [
+  [
+    [-1, -1],
+    [1, -1],
+  ], // North
+  [
+    [1, 1],
+    [1, -1],
+  ], // East
+  [
+    [-1, 1],
+    [1, 1],
+  ], // South
+  [
+    [-1, 1],
+    [-1, -1],
+  ], // West
+];
+
+export class ScytheOfVitur extends MeleeWeapon {
+  get cacheItemId(): number { return CACHE_ASSETS.items.scytheOfVitur.id; }
+  constructor() {
+    super();
+
+    this.bonuses = {
+      attack: {
+        stab: 70,
+        slash: 125,
+        crush: 30,
+        magic: -6,
+        range: 0,
+      },
+      defence: {
+        stab: -2,
+        slash: 8,
+        crush: 10,
+        magic: 0,
+        range: 0,
+      },
+      other: {
+        meleeStrength: 75,
+        rangedStrength: 0,
+        magicDamage: 0,
+        prayer: 0,
+      },
+      targetSpecific: {
+        undead: 0,
+        slayer: 0,
+      },
+    };
+  }
+
+  attackStyles() {
+    return [AttackStyle.REAP, AttackStyle.AGGRESSIVESLASH, AttackStyle.AGGRESSIVECRUSH, AttackStyle.DEFENSIVE];
+  }
+
+  attackStyleCategory(): AttackStyleTypes {
+    return AttackStyleTypes.SCYTHE;
+  }
+
+  defaultStyle(): AttackStyle {
+    return AttackStyle.AGGRESSIVESLASH;
+  }
+
+  get itemName(): ItemName {
+    return ItemName.SCYTHE_OF_VITUR;
+  }
+
+  get isTwoHander(): boolean {
+    return true;
+  }
+
+  hasSpecialAttack(): boolean {
+    return false;
+  }
+
+  get weight(): number {
+    return 3.175;
+  }
+
+  get attackRange() {
+    return 1;
+  }
+
+  get attackSpeed() {
+    return 5;
+  }
+
+  get inventoryImage() {
+    return ScytheInventImage;
+  }
+
+  override attack(from: Unit, to: Unit, bonuses: AttackBonuses) {
+    const region = from.region;
+    // As there is no concept of player direction yet, we dynamically calculate this based on the relative location of
+    // the attacker.
+    // Find the closest tile on the npc to us.
+    const targetTile = to.getClosestTileTo(from.location.x, from.location.y);
+
+    const dx = from.location.x - targetTile[0];
+    const dy = from.location.y - targetTile[1];
+    let direction;
+    if (dx < 0) {
+      direction = 1; // East
+    } else if (dx > 0) {
+      direction = 3; // West
+    } else if (dy < 0) {
+      direction = 2; // South
+    } else {
+      direction = 0; // North
+    }
+    if (from instanceof Player) {
+      const spotAnimByDirection = [
+        CACHE_ASSETS.spotAnims.scytheNorth.id,
+        CACHE_ASSETS.spotAnims.scytheEast.id,
+        CACHE_ASSETS.spotAnims.scytheSouth.id,
+        CACHE_ASSETS.spotAnims.scytheWest.id,
+      ];
+      const offsetByDirection = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
+      const offset = offsetByDirection[direction];
+      region.addEntity(new GraphicsObject(
+        region,
+        { x: from.location.x + offset.x, y: from.location.y + offset.y },
+        spotAnimByDirection[direction],
+        { height: 0.49 + 96 / 128, delay: 20, recolor: { "960": 0xffffff } },
+      ));
+    }
+    // Full damage attack, but each subsequent hit does half of the last.
+    let multiplier = 1.0;
+    super.attack(from, to, bonuses);
+    EXTRA_HIT_LOCATIONS[direction].forEach((hit) => {
+      const xx = from.location.x + hit[0];
+      const yy = from.location.y + hit[1];
+      const collision = Collision.collidesWithAnyMobs(region, xx, yy, from.size);
+      multiplier *= 0.5;
+      const extraHitBonuses: AttackBonuses = {
+        ...bonuses,
+        overallMultiplier: multiplier,
+      };
+      if (collision) {
+        super.attack(from, collision, extraHitBonuses, { hitSound: null });
+      } else {
+        super.attack(from, to, extraHitBonuses, { hitSound: null });
+      }
+    });
+    return true;
+  }
+
+  override get attackAnimationId() {
+    return PlayerAnimationIndices.ScytheSwing;
+  }
+
+  override get idleAnimationId() {
+    return PlayerAnimationIndices.ScytheIdle;
+  }
+
+  get attackSound() {
+    return new Sound(cacheSound(CACHE_ASSETS.sounds.meleeAttack.id), 0.05);
+  }
+}

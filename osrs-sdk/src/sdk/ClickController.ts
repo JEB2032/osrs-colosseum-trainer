@@ -1,0 +1,390 @@
+import { ReplayLog } from "./Replay";
+import { filter } from "lodash";
+import { TileMarker } from "../content/TileMarker";
+import { ClickAnimation } from "./ClickAnimation";
+import { MenuOption } from "./ContextMenu";
+import { Entity } from "./Entity";
+import { EntityNames } from "./EntityName";
+import { Item } from "./Item";
+import { Pathing } from "./Pathing";
+import { Settings } from "./Settings";
+import type { Unit } from "./Unit";
+import { Viewport } from "./Viewport";
+import { MapController } from "./MapController";
+import { ControlPanelController } from "./ControlPanelController";
+import { Player } from "./Player";
+import { Mob } from "./Mob";
+import { World } from "./World";
+import { Region } from "./Region";
+import { InputController } from "./Input";
+import { Trainer } from "./Trainer";
+
+export class ClickController {
+  clickAnimation?: ClickAnimation = null;
+  viewport: Viewport;
+
+  constructor(viewport: Viewport) {
+    this.viewport = viewport;
+  }
+
+  eventListeners: ((e: MouseEvent) => void)[] = [];
+  private pendingMouseMove: MouseEvent | null = null;
+  private mouseMoveFrame: number | null = null;
+
+  unload() {
+    this.viewport.canvas.removeEventListener("mousedown", this.eventListeners[0]);
+    this.viewport.canvas.removeEventListener("mouseup", this.eventListeners[1]);
+    this.viewport.canvas.removeEventListener("mousemove", this.eventListeners[2]);
+    if (this.mouseMoveFrame !== null) cancelAnimationFrame(this.mouseMoveFrame);
+    this.mouseMoveFrame = null;
+    this.pendingMouseMove = null;
+    this.viewport.canvas.removeEventListener("wheel", this.eventListeners[6]);
+  }
+
+  registerClickActions() {
+    this.viewport.canvas.addEventListener("mousedown", (this.eventListeners[0] = this.clickDown.bind(this)));
+    this.viewport.canvas.addEventListener("mouseup", (this.eventListeners[1] = this.leftClickUp.bind(this)));
+    this.viewport.canvas.addEventListener("mousemove", (this.eventListeners[2] = this.queueMouseMoved.bind(this)));
+    this.viewport.canvas.addEventListener("wheel", (this.eventListeners[6] = this.wheel.bind(this)));
+  }
+
+  private queueMouseMoved(e: MouseEvent) {
+    if (this.mouseMoveFrame !== null) {
+      this.pendingMouseMove = e;
+      return;
+    }
+    this.processMouseMoved(e);
+    this.mouseMoveFrame = requestAnimationFrame(() => {
+      this.mouseMoveFrame = null;
+      const latest = this.pendingMouseMove;
+      this.pendingMouseMove = null;
+      if (latest) this.queueMouseMoved(latest);
+    });
+  }
+
+  private processMouseMoved(e: MouseEvent) {
+    ControlPanelController.controller.cursorMovedTo(e);
+    MapController.controller.cursorMovedTo(e);
+    Viewport.viewport.contextMenu.cursorMovedTo(e.clientX, e.clientY);
+    this.mouseMoved(e);
+  }
+
+  wheel(e: WheelEvent) {
+    Settings.zoomScale -= e.deltaY / 500;
+
+    if (Settings.zoomScale < 0.5) {
+      Settings.zoomScale = 0.5;
+    }
+
+    if (Settings.zoomScale > 2) {
+      Settings.zoomScale = 2;
+    }
+
+    Settings.persistToStorage();
+  }
+
+  leftClickUp(e: MouseEvent) {
+    if (e.button !== 0) {
+      return;
+    }
+
+    const intercepted = ControlPanelController.controller.controlPanelClickUp(e);
+    if (intercepted) {
+      return;
+    }
+  }
+
+  private recentlySelectedMobs: Mob[] = [];
+  private hoverTooltip: { text: MenuOption["text"]; x: number; y: number } | null = null;
+
+  hasSelectedMob() {
+    return this.recentlySelectedMobs.length > 0;
+  }
+
+  mouseMoved(e: MouseEvent) {
+    const scale = Settings.maxUiScale;
+    if (this.viewport.components.some((component) => component.onMouseMove(e.offsetX / scale, e.offsetY / scale))) {
+      this.hoverTooltip = null;
+      return;
+    }
+    const panelHoverAction = ControlPanelController.controller.hoverAction(e);
+    if (panelHoverAction) {
+      this.recentlySelectedMobs.forEach((mob) => {
+        mob.selected = false;
+      });
+      this.recentlySelectedMobs = [];
+      this.hoverTooltip = { text: panelHoverAction, x: e.offsetX, y: e.offsetY + 10 };
+      return;
+    }
+    const world = Trainer.player.region.world;
+    const hoveredOn = Viewport.viewport.translateClick(e.offsetX, e.offsetY, world);
+    this.recentlySelectedMobs.forEach((mob) => {
+      mob.selected = false;
+    });
+    this.recentlySelectedMobs = [];
+    if (hoveredOn && hoveredOn.type === "entities") {
+      const visibleMobs = hoveredOn.mobs.filter((mob) => mob.visible());
+      const firstMob = visibleMobs.find(() => true);
+      if (firstMob) {
+        firstMob.selected = true;
+        this.recentlySelectedMobs.push(firstMob);
+      }
+      const firstAction = this.contextActionsFor(
+        Trainer.player.region,
+        visibleMobs,
+        hoveredOn.players,
+        hoveredOn.groundItems,
+        hoveredOn.location.x,
+        hoveredOn.location.y,
+      )[0];
+      this.hoverTooltip = firstAction
+        ? { text: firstAction.text, x: e.offsetX, y: e.offsetY + 10 }
+        : null;
+    } else {
+      this.hoverTooltip = null;
+    }
+  }
+
+  drawHoverTooltip(context: CanvasRenderingContext2D) {
+    if (!this.hoverTooltip || Viewport.viewport.contextMenu.isActive) return;
+    const { text, x, y } = this.hoverTooltip;
+    context.save();
+    context.font = "16px Stats_11";
+    context.textAlign = "left";
+    context.textBaseline = "top";
+    let textX = x + 12;
+    const textY = y + 12;
+    const textWidth = text.reduce((width, block) => width + context.measureText(block.text).width, 0);
+    context.fillStyle = "rgba(64, 64, 64, 0.5)";
+    context.fillRect(textX - 4, textY - 3, textWidth + 8, 21);
+    context.lineWidth = 1;
+    context.strokeStyle = "rgba(64, 64, 64, 0.75)";
+    context.strokeRect(textX - 3.5, textY - 2.5, textWidth + 7, 20);
+    text.forEach((block) => {
+      context.fillStyle = "black";
+      context.fillText(block.text, textX + 1, textY + 1);
+      context.fillStyle = block.fillStyle || "white";
+      context.fillText(block.text, textX, textY);
+      textX += context.measureText(block.text).width;
+    });
+    context.restore();
+  }
+
+  private contextActionsFor(region: Region, mobs: Mob[], players: Player[], groundItems: Item[], x: number, y: number) {
+    let menuOptions: MenuOption[] = [];
+    mobs.filter((mob) => mob.visible()).forEach((mob) => {
+      menuOptions = menuOptions.concat(mob.contextActions(region, x, y));
+    });
+    players.forEach((player) => {
+      if (player !== Trainer.player) {
+        menuOptions = menuOptions.concat(player.contextActions(region, x, y));
+      }
+    });
+    groundItems.forEach((item: Item) => {
+      menuOptions.push({
+        text: [
+          { text: "Take ", fillStyle: "white" },
+          { text: item.itemName, fillStyle: "#FF911F" },
+        ],
+        action: () => InputController.controller.queueAction(() => Trainer.player.setSeekingItem(item)),
+      });
+    });
+    return menuOptions;
+  }
+
+  private getClickedOn(e: MouseEvent, world: World, region: Region) {
+    const xAlign =
+      Viewport.viewport.contextMenu.location.x - Viewport.viewport.contextMenu.width / 2 < e.offsetX &&
+      e.offsetX < Viewport.viewport.contextMenu.location.x + Viewport.viewport.contextMenu.width / 2;
+    const yAlign =
+      Viewport.viewport.contextMenu.location.y < e.offsetY &&
+      e.offsetY < Viewport.viewport.contextMenu.location.y + Viewport.viewport.contextMenu.height;
+
+    if (Viewport.viewport.contextMenu.isActive && xAlign && yAlign) {
+      Viewport.viewport.contextMenu.clicked(e.offsetX, e.offsetY);
+      Viewport.viewport.contextMenu.setInactive();
+      return;
+    }
+
+    const intercepted = MapController.controller.leftClickDown(e);
+    if (intercepted) {
+      return;
+    }
+
+    const controlPanelIntercepted = ControlPanelController.controller.controlPanelClickDown(e);
+    if (controlPanelIntercepted) {
+      return;
+    }
+
+    const scale = Settings.maxUiScale;
+    if (this.viewport.components.some((component) => component.onPanelClick(e.offsetX / scale, e.offsetY / scale))) {
+      return;
+    }
+
+    const clickedOn = Viewport.viewport.translateClick(e.offsetX, e.offsetY, world);
+    if (!clickedOn) {
+      return null;
+    }
+    const { x, y } = clickedOn.location;
+
+    const mobs: Mob[] = [];
+    const players: Player[] = [];
+    const groundItems: Item[] = [];
+    if (clickedOn.type === "entities") {
+      mobs.push(...clickedOn.mobs.filter((mob) => mob.visible()));
+      players.push(...clickedOn.players);
+      groundItems.push(...clickedOn.groundItems);
+    }
+    return { mobs, players, groundItems, x, y };
+  }
+
+  clickDown(e: MouseEvent) {
+    if (e.button === 2) {
+      this.rightClickDown(e);
+    }
+
+    if (e.button === 1) {
+      e.preventDefault(); // prevent autoscroll on middle click
+      return;
+    }
+
+    if (e.button !== 0) {
+      return;
+    }
+    const region = Trainer.player.region;
+    const world = Trainer.player.region.world;
+    const player = Trainer.player;
+
+    Viewport.viewport.contextMenu.cursorMovedTo(e.clientX, e.clientY);
+    const clickedOn = this.getClickedOn(e, world, region);
+
+    if (!clickedOn) {
+      return;
+    }
+
+    const { mobs, players, groundItems, x, y } = clickedOn;
+
+    Trainer.player.interruptCombat();
+    ReplayLog.recordImmediate({ kind: "interrupt" });
+
+    const inputController = InputController.controller;
+    if (!e.shiftKey && mobs.length && mobs[0].canBeAttacked()) {
+      this.redClick();
+      inputController.queueAction(
+        () => this.playerAttackClick(mobs[0]),
+        () => ({ kind: "attackMob", mob: ReplayLog.mobIndex(mobs[0]) }),
+      );
+    } else if (!e.shiftKey && players.length) {
+      this.redClick();
+      inputController.queueAction(() => this.playerAttackClick(players[0]));
+    } else if (!e.shiftKey && groundItems.length) {
+      this.redClick();
+
+      inputController.queueAction(() => player.setSeekingItem(groundItems[0]));
+    } else if (x !== null && y !== null) {
+      this.yellowClick();
+      player.showTargetMarker({ x: Math.floor(x), y: Math.floor(y) });
+      inputController.queueAction(() => this.playerWalkClick(x, y), () => ({ kind: "walk", x, y }));
+    }
+    Viewport.viewport.contextMenu.setInactive();
+  }
+
+  rightClickDown(e: MouseEvent) {
+    const region = Trainer.player.region;
+    const world = Trainer.player.region.world;
+
+    Viewport.viewport.contextMenu.setPosition({ x: e.offsetX, y: e.offsetY });
+
+    if (ControlPanelController.controller.controlPanelRightClick(e)) {
+      return;
+    }
+
+    if (MapController.controller.rightClick(e)) {
+      return;
+    }
+
+    const clickedOn = this.getClickedOn(e, world, region);
+
+    if (!clickedOn) {
+      return;
+    }
+
+    const { mobs, players, groundItems, x, y } = clickedOn;
+
+    Viewport.viewport.contextMenu.destinationLocation = {
+      x: Math.floor(x),
+      y: Math.floor(y),
+    };
+
+    let menuOptions = this.contextActionsFor(region, mobs, players, groundItems, x, y);
+
+    menuOptions.push(
+      {
+        text: [{ text: `Walk Here`, fillStyle: "white" }],
+        action: () => {
+          this.yellowClick();
+          const x = Viewport.viewport.contextMenu.destinationLocation.x;
+          const y = Viewport.viewport.contextMenu.destinationLocation.y;
+          InputController.controller.queueAction(() => this.playerWalkClick(x, y), () => ({ kind: "walk", x, y }));
+        },
+      },
+      {
+        text: [{ text: "Mark / Unmark Tile", fillStyle: "white" }],
+        action: () => {
+          this.yellowClick();
+          const x = Viewport.viewport.contextMenu.destinationLocation.x;
+          const y = Viewport.viewport.contextMenu.destinationLocation.y;
+
+          let removed = false;
+          const entitiesAtPoint = Pathing.entitiesAtPoint(region, x, y, 1);
+          entitiesAtPoint.forEach((entity: TileMarker) => {
+            if (entity.entityName() === EntityNames.TILE_MARKER && entity.saveable) {
+              region.removeEntity(entity);
+              removed = true;
+            }
+          });
+
+          if (!removed) {
+            region.addEntity(new TileMarker(Trainer.player.region, { x, y }, "#FF0000"));
+          }
+
+          Settings.tile_markers = filter(
+            filter(region.entities, (entity: Entity) => entity.entityName() === EntityNames.TILE_MARKER),
+            (tileMarker: TileMarker) => tileMarker.saveable,
+          ).map((entity: Entity) => entity.location);
+
+          Settings.persistToStorage();
+        },
+      },
+    );
+
+    menuOptions = menuOptions.concat(region.rightClickActions());
+
+    Viewport.viewport.contextMenu.setMenuOptions(menuOptions);
+    Viewport.viewport.contextMenu.setActive();
+  }
+
+  playerAttackClick(mob: Unit) {
+    if (mob instanceof Mob && !mob.visible()) return;
+    Trainer.player.setAggro(mob);
+  }
+
+  playerWalkClick(x: number, y: number) {
+    Trainer.player.moveTo(Math.floor(x), Math.floor(y));
+  }
+
+  redClick() {
+    this.clickAnimation = new ClickAnimation(
+      "red",
+      Viewport.viewport.contextMenu.cursorPosition.x,
+      Viewport.viewport.contextMenu.cursorPosition.y,
+    );
+  }
+  yellowClick() {
+    this.clickAnimation = new ClickAnimation(
+      "yellow",
+      Viewport.viewport.contextMenu.cursorPosition.x,
+      Viewport.viewport.contextMenu.cursorPosition.y,
+    );
+  }
+}

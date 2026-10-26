@@ -1,0 +1,222 @@
+"use strict";
+import { Settings } from "./Settings";
+import { XpDropController } from "./XpDropController";
+import { Player } from "./Player";
+import { Region } from "./Region";
+import { DelayedAction } from "./DelayedAction";
+import { Viewport } from "./Viewport";
+import MetronomeSound from "../assets/sounds/bonk.ogg";
+import { InputController } from "./Input";
+import { ControlPanelController } from "./ControlPanelController";
+import { Projectile } from "./weapons/Projectile";
+import { filter } from "lodash";
+import { CLIENT_CYCLES_PER_SECOND, CLIENT_CYCLE_MS } from "./utils/constants";
+
+export class World {
+  regions: Region[] = [];
+  globalTickCounter = 0;
+  private _clientTickCounter = 0;
+  get clientTickCounter() { return this._clientTickCounter; }
+  isPaused = true;
+  tickPercent: number;
+  clientTickPercent = 0;
+  getReadyTimer = 0;
+  deltaTimeSincePause = -1;
+  deltaTimeSinceLastTick = -1;
+  lastMenuVisible: boolean;
+  then: number;
+  startTime: number;
+  frameCount = 0;
+  tickTimer = 0;
+  nextTickTimer = 0;
+  clientTickTimer = 0;
+  private clientTickAccumulator = 0;
+  fps = 50; // updates to track realtime framerate
+  private browserLoopStarted = false;
+
+  addRegion(region: Region) {
+    this.regions.push(region);
+  }
+
+  startTicking() {
+    this.isPaused = false;
+    const now = window.performance.now();
+    // Anchor accounting to this frame, preserving fractional progress on
+    // resume so animation poses do not jump backwards after a pause.
+    this.clientTickTimer = now;
+    if (this.deltaTimeSincePause === -1) {
+      this.clientTickAccumulator = 0;
+      this.clientTickPercent = 0;
+      this.tickTimer = now;
+      this.then = now;
+    } else {
+      this.clientTickAccumulator = this.clientTickPercent * CLIENT_CYCLE_MS;
+      this.then = now - this.deltaTimeSincePause;
+      this.tickTimer = now - this.deltaTimeSinceLastTick;
+      this.deltaTimeSincePause = -1;
+    }
+    this.nextTickTimer = this.tickTimer + Settings.tickMs;
+    ControlPanelController.controller.onWorldTick();
+    if (!this.browserLoopStarted) {
+      this.browserLoopStarted = true;
+      this.browserLoop(window.performance.now());
+    }
+  }
+
+  stopTicking() {
+    this.deltaTimeSincePause = window.performance.now() - this.then;
+    this.deltaTimeSinceLastTick = window.performance.now() - this.tickTimer;
+    this.isPaused = true;
+  }
+
+  doClientTick(now = window.performance.now()) {
+    this.clientTickAccumulator += Math.max(0, now - this.clientTickTimer);
+    this.clientTickTimer = now;
+    // Keep the client simulation on a fixed 20 ms cadence instead of
+    // re-anchoring movement to an imprecise setInterval callback.
+    // Avoid unbounded catch-up after a timer stall; visibility handling also
+    // prevents background accumulation.
+    const maxCatchupMs = CLIENT_CYCLE_MS * CLIENT_CYCLES_PER_SECOND;
+    if (this.clientTickAccumulator > maxCatchupMs) this.clientTickAccumulator = maxCatchupMs;
+    while (this.clientTickAccumulator >= CLIENT_CYCLE_MS) {
+      const tickPercent = Math.min(1, Math.max(0, (now - this.tickTimer) / Settings.tickMs));
+      const tickTimestamp = now - Math.max(0, this.clientTickAccumulator - CLIENT_CYCLE_MS);
+      this.tickClient(tickPercent, tickTimestamp);
+      this.clientTickAccumulator -= CLIENT_CYCLE_MS;
+    }
+    this.clientTickPercent = this.clientTickAccumulator / CLIENT_CYCLE_MS;
+  }
+
+  browserLoop(now: number) {
+    window.requestAnimationFrame(this.browserLoop.bind(this));
+    if (this.isPaused) {
+      return;
+    }
+    const elapsed = now - this.then;
+    this.fps = Math.floor(1000 / elapsed);
+    
+    if (now > this.nextTickTimer) {
+      this.nextTickTimer += Settings.tickMs;
+      this.tickTimer = now;
+      this.tickPercent = 0;
+      if (this.getReadyTimer > 0) {
+        this.getReadyTimer--;
+      }
+      this.tickWorld();
+    }
+    // Server movement must enqueue its step before the client-cycle movement
+    // consumes the path when both boundaries occur in the same render frame.
+    // A separate setInterval made that ordering dependent on browser timing.
+    this.doClientTick(now);
+    this.tickPercent = Math.min(1, Math.max(0, (now - this.tickTimer) / Settings.tickMs));
+    Viewport.viewport.draw(this);
+    this.then = now;
+    this.frameCount++;
+  }
+
+  tickWorld(n = 1) {
+    this.globalTickCounter++;
+    InputController.controller.onWorldTick(this.globalTickCounter);
+    ControlPanelController.controller.onWorldTick();
+    this.regions.forEach((region: Region) => this.tickRegion(region));
+
+    if (n > 1) {
+      return this.tickWorld(n - 1);
+    }
+  }
+
+  tickClient(tickPercent: number, timestamp?: number) {
+    InputController.controller.onClientTick();
+    this.regions.forEach((region: Region) => this.clientTick(region, tickPercent, timestamp));
+    Viewport.viewport?.clientTick(timestamp);
+    this._clientTickCounter++;
+  }
+
+  tickRegion(region: Region) {
+    if (Settings.metronome) {
+      new Audio(MetronomeSound).play();
+    }
+
+    // TODO: Clean up this since its now region based
+    if (region.newMobs.length) {
+      region.mobs.unshift(...region.newMobs);
+      region.newMobs = [];
+    }
+
+    region.players.forEach((player: Player) => player.pretick());
+
+    region.entities.forEach((entity) => entity.tick());
+
+    if (this.getReadyTimer == 0) {
+      region.mobs.forEach((mob) => {
+        mob.timerStep();
+      });
+      region.mobs.forEach((mob) => {
+        mob.queueStep();
+        mob.movementStep();
+        region.refreshUnitChunk(mob);
+      });
+      region.mobs.forEach((mob) => mob.attackStep());
+
+      region.newMobs.forEach((mob) => {
+        mob.timerStep();
+      });
+      region.newMobs.forEach((mob) => {
+        mob.queueStep();
+        mob.movementStep();
+        region.refreshUnitChunk(mob);
+      });
+      region.newMobs.forEach((mob) => mob.attackStep());
+    }
+
+    DelayedAction.afterNpcTick();
+
+    region.projectiles = filter(
+      region.projectiles,
+      (projectile: Projectile) => !projectile.shouldDestroy(),
+    );
+    region.projectiles.forEach((projectile: Projectile) => {
+      projectile.onTick();
+
+      if (projectile.remainingDelay === 0) {
+        projectile.beforeHit();
+      }
+    });
+
+    region.players.forEach((player: Player) => {
+      if (this.getReadyTimer <= 0) player.queueStep();
+      player.timerStep();
+      player.movementStep();
+      region.refreshUnitChunk(player);
+      if (this.getReadyTimer <= 0) {
+        player.attackStep();
+      }
+    });
+
+    region.midTick();
+    DelayedAction.tick();
+    XpDropController.controller.tick();
+    Viewport.viewport.tick();
+
+    region.postTick();
+
+    // Safely remove the dead stuff from the world. If we do it while iterating we can cause ticks to be stole'd
+    const deadPlayers = region.players.filter((player) => player.dying === 0);
+    const deadMobs = region.mobs.filter((mob) => mob.dying === 0);
+    const deadEntities = region.entities.filter((entity) => entity.dying === 0);
+    deadPlayers.forEach((player) => region.removePlayer(player));
+    deadMobs.forEach((mob) => region.removeMob(mob));
+    deadEntities.forEach((entity) => region.removeEntity(entity));
+  }
+
+  clientTick(region: Region, tickPercent: number, timestamp?: number) {
+    region.projectileGraphics = region.projectileGraphics.filter((graphic) => !graphic.shouldDestroy());
+    region.projectileGraphics.forEach((graphic) => graphic.clientTick());
+    region.players.forEach((player: Player) => {
+      player.clientTick(tickPercent, timestamp);
+    });
+    region.mobs.forEach((mob) => {
+      mob.clientTick(tickPercent, timestamp);
+    });
+  }
+}

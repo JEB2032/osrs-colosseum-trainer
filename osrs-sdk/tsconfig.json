@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "outDir": "lib",
+    "sourceMap": true,
+    "declaration": true,
+    "noImplicitAny": false,
+    "module": "es2020",
+    "target": "es5",
+    "jsx": "react",
+    "allowJs": true,
+    "strict": false,
+    "baseUrl": ".",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "paths": {
+      "osrs-sdk": [
+        "src/index.ts"
+      ],
+      "osrs-sdk-react": [
+        "packages/osrs-sdk-react/src/index.ts"
+      ]
+    },
+    "typeRoots": [
+      "node_modules/@types"
+    ]
+  },
+  "exclude": [
+    "scripts",
+    "packages/osrs-sdk-assets",
+    "osrs-assets.config.ts"
+  ]
+}

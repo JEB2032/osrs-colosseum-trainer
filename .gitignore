@@ -1,0 +1,7 @@
+node_modules/
+dist/
+lib/
+_bundles/
+.cache-render/
+public/osrs-assets/
+*.log

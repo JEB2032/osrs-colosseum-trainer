@@ -1,0 +1,1091 @@
+"use strict";
+
+import chebyshev from "chebyshev";
+import { filter, find, minBy, range, sumBy, uniq } from "lodash";
+import { BasePrayer } from "./BasePrayer";
+import { Collision } from "./Collision";
+import { Eating } from "./Eating";
+import { Equipment } from "./Equipment";
+import { AmmoType } from "./gear/Ammo";
+import { AttackBonuses, Weapon } from "./gear/Weapon";
+import { Item } from "./Item";
+import { ItemName } from "./ItemName";
+import { LineOfSight } from "./LineOfSight";
+import { Location } from "./Location";
+import { Pathing } from "./Pathing";
+import { PlayerRegenTimer } from "./PlayerRegenTimers";
+import { PlayerStats } from "./PlayerStats";
+import { PrayerController } from "./PrayerController";
+import { Region } from "./Region";
+import { SetEffect } from "./SetEffect";
+import { Settings } from "./Settings";
+import { Unit, UnitBonuses, UnitOptions, UnitTypes } from "./Unit";
+import { Sound } from "./utils/SoundCache";
+import { XpDrop } from "./XpDrop";
+import { XpDropController } from "./XpDropController";
+
+import LeatherHit from "../assets/sounds/hit.ogg";
+import HumanHit from "../assets/sounds/human_hit_513.ogg";
+import { TileMarker } from "../content/TileMarker";
+import { Model } from "./rendering/Model";
+
+import { PlayerAnimationIndices } from "./rendering/GLTFAnimationConstants";
+import { CacheRenderModel } from "./rendering/CacheRenderModel";
+import { CacheRenderReferences } from "./rendering/CacheRenderReference";
+import { Trainer } from "./Trainer";
+import { UILayerProjector } from "./Renderable";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+class PlayerEffects {
+  poisoned = 0;
+  venomed = 0;
+  stamina = 0;
+}
+
+// player can rotate this many JAUs per client tick
+// Player turn speed in the 2048-unit orientation space.
+const PLAYER_ROTATION_RATE_JAU = 64;
+const JAU_PER_RADIAN = 512;
+const ROTATION_RADIANS_PER_CLIENT_TICK = PLAYER_ROTATION_RATE_JAU / JAU_PER_RADIAN;
+
+const ENABLE_POSITION_DEBUG = false;
+
+export class Player extends Unit {
+  manualSpellCastSelection: Weapon;
+
+  // this is the actual location that we want to move to (ignoring pathing)
+  destinationLocation?: Location;
+  // this is the location we are actually pathing towards
+  pathTargetLocation?: Location;
+
+  stats: PlayerStats;
+  currentStats: PlayerStats;
+  xpDrops: XpDrop[] = [];
+  overhead: BasePrayer;
+  running = true;
+  cachedBonuses: UnitBonuses = null;
+  useSpecialAttack = false;
+  effects = new PlayerEffects();
+  regenTimer: PlayerRegenTimer = new PlayerRegenTimer(this);
+
+  autocastDelay = 0;
+  manualCastHasTarget = false;
+
+  eats: Eating = new Eating();
+  inventory: Item[];
+
+  seekingItem: Item = null;
+
+  clickMarker: ClickMarker | null = null;
+  aggroMarker: ClickMarker | null = null;
+
+  pathMarkers: ClickMarker[] = [];
+  currentPoseAnimation = PlayerAnimationIndices.Idle;
+
+  constructor(region: Region, location: Location, options: UnitOptions = {}) {
+    super(region, location, options);
+
+    this.destinationLocation = location;
+    this.pathTargetLocation = location;
+    this.equipmentChanged();
+    this.clearXpDrops();
+    this.autoRetaliate = false;
+    this.eats.player = this;
+
+    this.setUnitOptions(options);
+
+    this.prayerController = new PrayerController(this);
+  }
+
+  contextActions(region: Region, x: number, y: number) {
+    return super.contextActions(region, x, y).concat([
+      {
+        text: [
+          { text: "Attack ", fillStyle: "white" },
+          { text: `Player`, fillStyle: "yellow" },
+          {
+            text: ` (level ${this.combatLevel})`,
+            fillStyle: Trainer.player.combatLevelColor(this),
+          },
+        ],
+        action: () => {
+          Trainer.clickController.redClick();
+          Trainer.player.setAggro(this);
+        },
+      },
+    ]);
+  }
+
+  setUnitOptions(options: UnitOptions) {
+    this.equipment = options.equipment || {};
+    this.inventory = options.inventory || new Array(28).fill(null);
+    this.equipmentChanged();
+  }
+
+  interruptCombat() {
+    // Cancelling an attack while stationary should not reset facing to the
+    // travel/resting heading. Preserve the last target-facing angle first.
+    if (this.aggro) {
+      const targetAngle = this.getTargetAngle();
+      this.restingAngle = targetAngle;
+      this.nextAngle = targetAngle;
+    }
+    this.setAggro(null);
+  }
+
+  get color() {
+    return "#00FF00";
+  }
+
+  get height() {
+    return 1;
+  }
+
+  get isPlayer(): boolean {
+    return true;
+  }
+
+  /** Added to the weapon or spell range, e.g. negative for the Colosseum's Myopia modifier. */
+  attackRangeModifier = 0;
+
+  get attackRange() {
+    let range = 1;
+    if (this.manualSpellCastSelection) {
+      range = this.manualSpellCastSelection.attackRange;
+    } else if (this.equipment.weapon) {
+      range = this.equipment.weapon.attackRange;
+    }
+    // Melee range is never reduced below one tile.
+    return range <= 1 ? range : Math.max(1, range + this.attackRangeModifier);
+  }
+
+  get attackSpeed() {
+    if (this.manualSpellCastSelection) {
+      return this.manualSpellCastSelection.attackSpeed;
+    }
+    if (this.equipment.weapon) {
+      return this.equipment.weapon.attackSpeed;
+    }
+    return 5;
+  }
+
+  openInventorySlots(): number[] {
+    const openSpots = [];
+    for (let i = 0; i < 28; i++) {
+      if (!this.inventory[i]) {
+        openSpots.push(i);
+      }
+    }
+    return openSpots;
+  }
+
+  swapItemPositions(pos1: number, pos2: number) {
+    // positions can be negative if an item is destroyed due to consuming it on the same tick
+    const temp = this.inventory[pos1] ?? null;
+    this.inventory[pos1] = this.inventory[pos2] ?? null;
+    this.inventory[pos2] = temp;
+  }
+
+  equipmentChanged() {
+    this.interruptCombat();
+    this.clearSpotAnim("weapon-attack");
+
+    const gear = [
+      this.equipment.weapon,
+      this.equipment.offhand,
+      this.equipment.helmet,
+      this.equipment.necklace,
+      this.equipment.chest,
+      this.equipment.legs,
+      this.equipment.feet,
+      this.equipment.gloves,
+      this.equipment.ring,
+      this.equipment.cape,
+    ];
+
+    if (
+      this.equipment.weapon &&
+      this.equipment.ammo &&
+      this.equipment.weapon.compatibleAmmo().includes(this.equipment.ammo.itemName)
+    ) {
+      gear.push(this.equipment.ammo);
+    } else if (this.equipment.ammo && this.equipment.ammo.ammoType() == AmmoType.BLESSING) {
+      gear.push(this.equipment.ammo);
+    }
+
+    // updated gear bonuses
+    this.cachedBonuses = Unit.emptyBonuses();
+    gear.forEach((g: Equipment) => {
+      if (g && g.bonuses) {
+        g.updateBonuses(gear);
+        this.cachedBonuses = Unit.mergeEquipmentBonuses(this.cachedBonuses, g.bonuses);
+      }
+    });
+
+    // update set effects
+    const allSetEffects = [];
+    gear.forEach((equipment: Equipment) => {
+      if (equipment && equipment.equipmentSetEffect) {
+        allSetEffects.push(equipment.equipmentSetEffect);
+      }
+    });
+    const completeSetEffects = [];
+    uniq(allSetEffects).forEach((setEffect: typeof SetEffect) => {
+      const itemsInSet = setEffect.itemsInSet();
+      let setItemsEquipped = 0;
+      find(itemsInSet, (itemName: string) => {
+        gear.forEach((equipment: Equipment) => {
+          if (!equipment) {
+            return;
+          }
+          if (itemName === equipment.itemName) {
+            setItemsEquipped++;
+          }
+        });
+      });
+      if (itemsInSet.length === setItemsEquipped) {
+        completeSetEffects.push(setEffect);
+      }
+    });
+    this.setEffects = completeSetEffects;
+
+    if (this.visualPath.length === 0) {
+      this.currentPoseAnimation = this.getIdlePoseId();
+    }
+    this.invalidateModel();
+  }
+
+  get bonuses(): UnitBonuses {
+    return this.cachedBonuses;
+  }
+
+  setStats() {
+    // non boosted numbers
+    this.stats = Settings.player_stats;
+
+    // with boosts
+    this.currentStats = JSON.parse(JSON.stringify(Settings.player_stats));
+  }
+
+  get weight(): number {
+    let gear: Item[] = [
+      this.equipment.weapon,
+      this.equipment.offhand,
+      this.equipment.helmet,
+      this.equipment.necklace,
+      this.equipment.chest,
+      this.equipment.legs,
+      this.equipment.feet,
+      this.equipment.gloves,
+      this.equipment.ring,
+      this.equipment.cape,
+      this.equipment.ammo,
+    ];
+    gear = gear.concat(this.inventory);
+    gear = filter(gear);
+
+    const kgs = Math.max(Math.min(64, sumBy(gear, "weight")), 0);
+    return kgs;
+  }
+
+  get prayerDrainResistance(): number {
+    // https://oldschool.runescape.wiki/w/Prayer#Prayer_drain_mechanics
+    return 2 * this.bonuses.other.prayer + 60;
+  }
+
+  get type() {
+    return UnitTypes.PLAYER;
+  }
+
+  clearXpDrops() {
+    this.xpDrops.length = 0;
+  }
+
+  grantXp(xpDrop: XpDrop) {
+    this.xpDrops.push(xpDrop);
+  }
+
+  sendXpToController() {
+    if (!XpDropController.controller) {
+      return;
+    }
+    if (this !== Trainer.player) {
+      return;
+    }
+
+    const aggregated: { [skill: string]: XpDrop } = {};
+    this.xpDrops.forEach(({ skill, xp, damage }) => {
+      if (!aggregated[skill]) aggregated[skill] = { skill, xp: 0, damage: 0 };
+      aggregated[skill].xp += xp;
+      aggregated[skill].damage += damage || 0;
+    });
+
+    Object.values(aggregated).forEach((drop) => {
+      XpDropController.controller.registerXpDrop(drop);
+    });
+
+    this.clearXpDrops();
+  }
+
+  moveTo(x: number, y: number) {
+    this.interruptCombat();
+
+    this.manualSpellCastSelection = null;
+
+    this.pathTargetLocation = null;
+
+    const clickedOnEntities = Collision.collideableEntitiesAtPoint(this.region, x, y, 1);
+    if (clickedOnEntities.length) {
+      // Clicked on an entity, scan around to find the best spot to actually path to
+      const clickedOnEntity = clickedOnEntities[0];
+      const maxDist = Math.ceil(clickedOnEntity.size / 2);
+      let bestDistances = [];
+      let bestDistance = 9999;
+      for (let yOff = -maxDist; yOff < maxDist; yOff++) {
+        for (let xOff = -maxDist; xOff < maxDist; xOff++) {
+          const potentialX = x + xOff;
+          const potentialY = y + yOff;
+          const e = Collision.collideableEntitiesAtPoint(this.region, potentialX, potentialY, 1);
+          if (e.length === 0) {
+            const distance = Pathing.dist(potentialX, potentialY, x, y);
+            if (distance <= bestDistance) {
+              if (bestDistances[0] && bestDistances[0].bestDistance > distance) {
+                bestDistance = distance;
+                bestDistances = [];
+              }
+              bestDistances.push({
+                x: potentialX,
+                y: potentialY,
+                bestDistance,
+              });
+            }
+          }
+        }
+      }
+      const winner = minBy(bestDistances, (distance) =>
+        Pathing.dist(distance.x, distance.y, this.location.x, this.location.y),
+      );
+      if (winner) {
+        this.destinationLocation = { x: winner.x, y: winner.y };
+      }
+    } else {
+      this.destinationLocation = { x, y };
+    }
+  }
+
+  attack(): boolean {
+    if (this.manualSpellCastSelection) {
+      const target = this.aggro;
+      this.manualSpellCastSelection.cast(this, target);
+      this.manualSpellCastSelection = null;
+      this.interruptCombat();
+      this.destinationLocation = this.location;
+    } else {
+      // use equipped weapon
+      if (this.equipment.weapon) {
+        if (this.equipment.weapon.hasSpecialAttack() && this.useSpecialAttack) {
+          if (this.currentStats.specialAttack >= this.equipment.weapon.specialAttackDrain()) {
+            const didSpecialAttack = this.equipment.weapon.specialAttack(this, this.aggro as Unit /* hack */);
+            if (didSpecialAttack) {
+              this.currentStats.specialAttack -= this.equipment.weapon.specialAttackDrain();
+              this.regenTimer.specUsed();
+            }
+            return didSpecialAttack;
+          }
+          this.useSpecialAttack = false;
+        } else {
+          const bonuses: AttackBonuses = {};
+          if (this.equipment.helmet && this.equipment.helmet.itemName === ItemName.SLAYER_HELMET_I) {
+            bonuses.gearMeleeMultiplier = 7 / 6;
+            bonuses.gearRangeMultiplier = 1.15;
+            bonuses.gearMageMultiplier = 1.15;
+          }
+
+          return this.equipment.weapon.attack(this, this.aggro /* hack */, bonuses);
+        }
+      } else {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  override didAttack() {
+    const weapon = this.equipment.weapon;
+    const usedSpecialAttack = this.useSpecialAttack && weapon?.hasSpecialAttack();
+    super.didAttack(usedSpecialAttack ? weapon?.specialAttackAnimationId : undefined);
+    this.useSpecialAttack = false;
+  }
+
+  activatePrayers() {
+    this.overhead = this.prayerController.overhead();
+    this.prayerController.prayers.forEach((prayer) => {
+      if (prayer.willPlayOffSound) prayer.playOffSound();
+      if (prayer.willPlayOnSound) prayer.playOnSound();
+      prayer.willPlayOffSound = false;
+      prayer.willPlayOnSound = false;
+    });
+  }
+
+  setAggro(mob: Unit | null) {
+    super.setAggro(mob);
+
+    if (this.manualSpellCastSelection && mob != null) {
+      this.manualCastHasTarget = true;
+    } else {
+      this.manualCastHasTarget = false;
+    }
+
+    this.aggro = mob;
+    this.seekingItem = null;
+  }
+
+  setSeekingItem(item: Item) {
+    this.interruptCombat();
+    this.seekingItem = item;
+  }
+  determineDestination() {
+    if (this.aggro) {
+      if (this.aggro.dying > -1) {
+        this.destinationLocation = this.location;
+        return;
+      }
+      const isUnderAggrodMob = Collision.collisionMath(
+        this.location.x,
+        this.location.y,
+        1,
+        this.aggro.location.x,
+        this.aggro.location.y,
+        this.aggro.size,
+      );
+      this.setHasLOS();
+
+      if (isUnderAggrodMob || !this.hasLOS) {
+        const seekingTiles: Location[] = [];
+        // "When clicking on an npc, object, or player, the requested tiles will be all tiles"
+        // "within melee range of the npc, object, or player."
+        // Start at the south-west tile so constructPaths can use it as the centre of its fallback search.
+        const aggroSize = this.aggro.size;
+        range(0, aggroSize).forEach((xx) => {
+          [-1, this.aggro.size].forEach((yy) => {
+            // Don't path into an unpathable object.
+            const px = this.aggro.location.x + xx;
+            const py = this.aggro.location.y - yy;
+            if (!Collision.collidesWithAnyEntities(this.region, px, py, 1)) {
+              seekingTiles.push({
+                x: px,
+                y: py,
+              });
+            }
+          });
+        });
+        range(0, aggroSize).forEach((yy) => {
+          [-1, this.aggro.size].forEach((xx) => {
+            // Don't path into an unpathable object.
+            const px = this.aggro.location.x + xx;
+            const py = this.aggro.location.y - yy;
+            if (!Collision.collidesWithAnyEntities(this.region, px, py, 1)) {
+              seekingTiles.push({
+                x: px,
+                y: py,
+              });
+            }
+          });
+        });
+        // Create paths to all npc tiles
+        const path = Pathing.constructPaths(this.region, this.location, seekingTiles);
+        this.destinationLocation = path.destination ?? this.location;
+      } else {
+        // stop moving
+        this.destinationLocation = this.location;
+      }
+    } else if (this.seekingItem) {
+      this.destinationLocation = this.seekingItem.groundLocation;
+    }
+  }
+  private getIdlePoseId() {
+    return this.equipment.weapon ? this.equipment.weapon.idleAnimationId : PlayerAnimationIndices.Idle;
+  }
+
+  private getWalkPoseId() {
+    return this.equipment.weapon ? this.equipment.weapon.walkAnimationId : PlayerAnimationIndices.Walk;
+  }
+
+  private getRunPoseId() {
+    return this.equipment.weapon ? this.equipment.weapon.runAnimationId : PlayerAnimationIndices.Run;
+  }
+
+  private getWalkBackPoseId() {
+    return this.equipment.weapon ? this.equipment.weapon.walkBackAnimationId : PlayerAnimationIndices.WalkBack;
+  }
+
+  private getStrafeLeftPoseId() {
+    return this.equipment.weapon ? this.equipment.weapon.strafeLeftAnimationId : PlayerAnimationIndices.StrafeLeft;
+  }
+
+  private getStrafeRightPoseId() {
+    return this.equipment.weapon ? this.equipment.weapon.strafeRightAnimationId : PlayerAnimationIndices.StrafeRight;
+  }
+
+  // WARNING: client ticks do NOT happen in line with render or logic ticks. Do not use this for anything other than
+  // visual logic.
+  // Movement synchronisation details: docs/PLAYER_MOVEMENT_SYNC.md
+  clientTick(tickPercent, tickTimestamp = window.performance.now()) {
+    const currentAngle = this._angle;
+    this.rotationFromAngle = this._angle;
+    this.rotationTimestamp = tickTimestamp;
+    let angleDelta = ((this.nextAngle - this._angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    if (Math.abs(Math.abs(angleDelta) - Math.PI) < 1e-6) angleDelta = this.rotationDirection * Math.PI;
+    else if (Math.abs(angleDelta) > 1e-6) this.rotationDirection = Math.sign(angleDelta);
+    if (Math.abs(angleDelta) <= ROTATION_RADIANS_PER_CLIENT_TICK) this._angle = this.nextAngle;
+    else this._angle += Math.sign(angleDelta) * ROTATION_RADIANS_PER_CLIENT_TICK;
+
+    if (this.visualPath.length === 0) {
+      this.currentPoseAnimation = this.getIdlePoseId();
+      return;
+    }
+    const { x: nextX, y: nextY, run } = this.visualPath[0];
+    if (this.perceivedLocation.x !== nextX || this.perceivedLocation.y !== nextY) {
+      this.lastTravelAngle = -Pathing.angle(this.perceivedLocation.x, this.perceivedLocation.y, nextX, nextY);
+    }
+
+    const baseMovementSpeed = 1 / (Settings.tickMs / 20);
+    let movementSpeed = baseMovementSpeed;
+
+    this.currentPoseAnimation = this.getWalkPoseId();
+    let usingForwardMovementPose = true;
+
+    const canRotate = true;
+    let movementAngleDelta = ((this.lastTravelAngle - currentAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    if (Math.abs(Math.abs(movementAngleDelta) - Math.PI) < 1e-6) movementAngleDelta = Math.PI;
+    if (Math.abs(movementAngleDelta) > 1e-6 && canRotate) {
+      if (ENABLE_POSITION_DEBUG) console.log("must rotate", this.visualPath.length, run);
+      // Only apply turn turn slowdown when the player has no interaction target.
+      if (!this.aggro) {
+        movementSpeed = baseMovementSpeed / 2;
+      }
+      const lateralThreshold = Math.PI / 4;
+      // Directional movement poses
+      const thresholdEpsilon = 1e-6;
+      if (movementAngleDelta > lateralThreshold + thresholdEpsilon && movementAngleDelta < (Math.PI * 3) / 4) {
+        this.currentPoseAnimation = this.getStrafeRightPoseId();
+        usingForwardMovementPose = false;
+      } else if (movementAngleDelta < -lateralThreshold - thresholdEpsilon && movementAngleDelta > (-Math.PI * 3) / 4) {
+        this.currentPoseAnimation = this.getStrafeLeftPoseId();
+        usingForwardMovementPose = false;
+      } else if (Math.abs(movementAngleDelta) >= (Math.PI * 3) / 4) {
+        this.currentPoseAnimation = this.getWalkBackPoseId();
+        usingForwardMovementPose = false;
+      }
+    }
+    if (usingForwardMovementPose && run) {
+      this.currentPoseAnimation = this.getRunPoseId();
+    }
+    const reachedStep = this.advanceVisualPath(baseMovementSpeed, movementSpeed, tickTimestamp);
+    if (reachedStep) {
+      if (ENABLE_POSITION_DEBUG) {
+        const headTile = this.pathMarkers.shift();
+        this.region.removeEntity(headTile);
+      }
+      if (this.visualPath.length === 0) {
+        this.currentPoseAnimation = this.getIdlePoseId();
+        this.restingAngle = this.lastTravelAngle;
+        if (!this.aggro) this.nextAngle = this.restingAngle;
+      } else {
+        this.nextAngle = this.getTargetAngle();
+      }
+    }
+  }
+
+  moveTowardsDestination() {
+    this.nextAngle = this.getTargetAngle();
+
+    // Check if player will move this tick and at what speed
+    const willMoveThisTick =
+      this.destinationLocation &&
+      (this.location.x !== this.destinationLocation.x || this.location.y !== this.destinationLocation.y);
+
+    // Pre-calculate the movement to determine actual speed used
+    let actualMovementSpeed = 1; // default to walk
+    if (willMoveThisTick) {
+      const speed = this.running ? 2 : 1;
+      const { path } = Pathing.path(this.region, this.location, this.destinationLocation, speed, this.aggro);
+
+      // Actual movement speed is how many tiles we'll move this tick
+      if (path.length >= 2) {
+        actualMovementSpeed = 2; // Actually running (moving 2 tiles)
+      } else if (path.length === 1) {
+        actualMovementSpeed = 1; // Actually walking (moving 1 tile)
+      }
+    }
+
+    // Energy only drains when ACTUALLY running (moving 2 tiles this tick)
+    if (this.running && willMoveThisTick && actualMovementSpeed === 2) {
+      // New energy drain formula: ⌊60 + 67 * clamp[0,64](weight) / 64⌋ * (1 - agility / 300)
+      const clampedWeight = Math.min(Math.max(0, this.weight), 64);
+      const baseReduction = Math.floor(60 + (67 * clampedWeight) / 64);
+      const agilityMultiplier = 1 - this.currentStats.agility / 300;
+      const runReduction = Math.floor(baseReduction * agilityMultiplier);
+
+      let actualReduction = runReduction;
+      if (this.effects.stamina) {
+        actualReduction = Math.floor(0.3 * runReduction);
+      } else if (this.equipment.ring && this.equipment.ring.itemName === ItemName.RING_OF_ENDURANCE) {
+        actualReduction = Math.floor(0.85 * runReduction);
+      }
+
+      this.currentStats.run -= actualReduction;
+    } else {
+      // New energy recovery formula: ⌊agility / 10⌋ + 15
+      const recovery = Math.floor(this.currentStats.agility / 10) + 15;
+      this.currentStats.run += recovery;
+    }
+
+    this.currentStats.run = Math.min(Math.max(this.currentStats.run, 0), 10000);
+
+    if (this.currentStats.run === 0) {
+      this.running = false;
+    }
+
+    // Tick down stamina
+    this.effects.stamina--;
+    this.effects.stamina = Math.min(Math.max(this.effects.stamina, 0), 200);
+
+    // Path to next position if not already there.
+    if (
+      !this.destinationLocation ||
+      (this.location.x === this.destinationLocation.x && this.location.y === this.destinationLocation.y)
+    ) {
+      this.pathTargetLocation = null;
+      return;
+    }
+
+    const speed = this.running ? 2 : 1;
+
+    const { path, destination } = Pathing.path(this.region, this.location, this.destinationLocation, speed, this.aggro);
+    this.pathTargetLocation = destination;
+    if (!path.length || !destination) {
+      return;
+    }
+    if (this.consumesSpace) {
+      this.region.clearTileCollisionFlags(this.location.x, this.location.y, this.size);
+    }
+    if (path.length < speed) {
+      // Step to the destination
+      this.location = path[path.length - 1];
+    } else {
+      // Move one or two steps forward
+      this.location = path[speed - 1];
+    }
+    // Keep every tile step. The cache client's pathLength counts steps, and
+    // its 6/8-unit catch-up speeds depend on that count. Collapsing a straight
+    // two-tile run into one corner made the model fall progressively behind
+    // the authoritative true tile.
+    // Walking advances one authoritative tile per server tick; running may
+    // advance two. Do not enqueue the second look-ahead tile for a walker or
+    // the visual queue grows faster than the true tile and falls behind.
+    const visualSteps = path.slice(0, this.running ? 2 : 1);
+    if (this.consumesSpace) {
+      visualSteps.forEach(({ x, y }) => this.region.clearTileCollisionFlags(x, y, this.size));
+      this.region.setTileCollisionFlags(this.location.x, this.location.y, this.size);
+    }
+    const newTiles = visualSteps.map((pos) => ({
+      ...pos,
+      run: this.running && path.length >= 2,
+    }));
+    if (ENABLE_POSITION_DEBUG) {
+      newTiles.forEach((tile) => {
+        const marker = new ClickMarker(this.region, tile, "#FF0000");
+        this.pathMarkers.push(marker);
+        this.region.addEntity(marker);
+      });
+    }
+    this.visualPath.push(...newTiles);
+    this.nextAngle = this.getTargetAngle();
+  }
+
+  takeSeekingItem() {
+    if (this.seekingItem) {
+      if (this.seekingItem.groundLocation.x === this.location.x) {
+        if (this.seekingItem.groundLocation.y === this.location.y) {
+          // Verify player is close. Apparently we need to have the player keep track of this item
+          this.region.removeGroundItem(this.seekingItem, this.location.x, this.location.y);
+          const slots = this.openInventorySlots();
+          if (slots.length) {
+            const slot = slots[0];
+            this.inventory[slot] = this.seekingItem;
+          }
+          this.seekingItem = null;
+        }
+      }
+    }
+  }
+
+  dead() {
+    super.dead();
+    this.perceivedLocation = this.location;
+    this.destinationLocation = this.location;
+  }
+
+  // Rotation Code
+  private restingAngle = 0;
+  private lastTravelAngle = 0;
+  private nextAngle = 0;
+
+  private _angle = 0;
+  private rotationFromAngle = 0;
+  private rotationTimestamp = 0;
+  private rotationDirection = 1;
+
+  getPerceivedRotation(tickPercent) {
+    // https://gist.github.com/shaunlebron/8832585
+    function shortAngleDist(a0, a1) {
+      const da = (a1 - a0) % (Math.PI * 2);
+      return ((2 * da) % (Math.PI * 2)) - da;
+    }
+    //
+    const alpha = Math.min(1, Math.max(0, (window.performance.now() - this.rotationTimestamp) / 20));
+    const delta = ((this._angle - this.rotationFromAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    return this.rotationFromAngle + delta * alpha;
+  }
+
+  getTargetAngle() {
+    if (this.aggro) {
+      // Facing follows the same interpolated positions that are rendered. In
+      // particular, do not mix the player's visual position with the target's
+      // authoritative tile; that produces transient wrong-facing angles while
+      // either actor is moving.
+      const tickPercent = this.region?.world?.tickPercent ?? 1;
+      const perceivedLocation = this.getPerceivedLocation(tickPercent);
+      const targetLocation = this.aggro.getPerceivedLocation(tickPercent);
+      const angle = Pathing.angle(
+        perceivedLocation.x + this.size / 2,
+        perceivedLocation.y - this.size / 2,
+        targetLocation.x + this.aggro.size / 2,
+        targetLocation.y - this.aggro.size / 2,
+      );
+      return -angle;
+    }
+    if (this.visualPath.length > 0) {
+      const angle = Pathing.angle(
+        this.perceivedLocation.x,
+        this.perceivedLocation.y,
+        this.visualPath[0].x,
+        this.visualPath[0].y,
+      );
+      return -angle;
+    }
+    return this.restingAngle;
+  }
+
+  movementStep() {
+    if (this.dying > -1 || this.currentStats.hitpoint <= 0) {
+      return;
+    }
+
+    this.activatePrayers();
+
+    this.takeSeekingItem();
+
+    if (!this.isFrozen()) {
+      this.determineDestination();
+      this.moveTowardsDestination();
+    }
+
+    this.updatePathMarker();
+  }
+
+  removeClickMarker() {
+    if (!this.clickMarker) {
+      return;
+    }
+    this.clickMarker.remove();
+    this.region.removeEntity(this.clickMarker);
+    this.clickMarker = null;
+  }
+
+  showTargetMarker(location: Location) {
+    if (!this.clickMarker) {
+      this.clickMarker = new ClickMarker(this.region, location);
+      this.region.addEntity(this.clickMarker);
+    } else {
+      this.clickMarker.location = location;
+    }
+  }
+
+  updatePathMarker() {
+    if (!this.pathTargetLocation) {
+      this.removeClickMarker();
+      return;
+    }
+    if (
+      this.clickMarker &&
+      this.location.x === this.pathTargetLocation.x &&
+      this.location.y === this.pathTargetLocation.y
+    ) {
+      this.removeClickMarker();
+    } else if (!this.clickMarker) {
+      this.showTargetMarker(this.pathTargetLocation);
+    } else {
+      this.clickMarker.location = this.pathTargetLocation;
+    }
+  }
+
+  hitSound(damaged: boolean): Sound | null {
+    return damaged ? new Sound(HumanHit, 0.1) : new Sound(LeatherHit, 0.15);
+  }
+
+  damageTaken() {
+    this.prayerController.checkRedemption(this);
+  }
+
+  pretick() {
+    this.prayerController.tick(this);
+  }
+
+  override timerStep() {
+    if (this.region.world?.getReadyTimer > 0) {
+      // GET READY consumes the movement lock without advancing combat clocks.
+      this.frozen--;
+      return;
+    }
+    super.timerStep();
+  }
+
+  override attackStep() {
+    super.attackStep();
+    this.detectDeath();
+
+    if (this.dying > -1) {
+      return;
+    }
+
+    this.clearXpDrops();
+
+    // clear aggro if target is nulled (e.g. healers on zuk after tag)
+    if (this.aggro && this.aggro.isNulled) {
+      this.aggro = null;
+    }
+
+    this.attackIfPossible();
+
+    this.eats.tickFood(this);
+
+    this.regenTimer.regen();
+
+    this.sendXpToController();
+  }
+
+  attackIfPossible() {
+    if (this.canAttack() === false) {
+      return;
+    }
+
+    if (this.aggro) {
+      this.setHasLOS();
+      if (this.hasLOS && this.attackDelay <= 0 && this.aggro.isDying() === false) {
+        this.attack() && this.didAttack();
+      } else if (
+        this.manualSpellCastSelection &&
+        this.manualCastHasTarget &&
+        this.hasLOS &&
+        this.attackDelay <= 0 &&
+        this.aggro.dying == this.aggro.deathAnimationLength
+      ) {
+        // Phantom/ghost barrage
+        this.attack() && this.didAttack();
+      }
+
+      // After allowing ghost barrage, unset aggro if enemy is dead
+      if (this.aggro && this.aggro.isDying()) {
+        this.interruptCombat();
+      }
+    }
+  }
+
+  draw(tickPercent: number) {
+    // this.region.context.fillStyle = '#FFFF00'
+    // this.region.context.fillRect(
+    //   26 * Settings.tileSize,
+    //   24 * Settings.tileSize,
+    //   6 * Settings.tileSize,
+    //   12 * Settings.tileSize
+    // // 26 - 32 x
+    // // 24 - 36 y
+
+    // )
+    if (Settings.displayPlayerLoS) {
+      LineOfSight.drawLOS(
+        this.region,
+        this.location.x,
+        this.location.y,
+        this.size,
+        this.attackRange,
+        "#00FF0055",
+        this.type === UnitTypes.MOB,
+      );
+    }
+
+    this.region.context.save();
+    const perceivedLocation = this.getPerceivedLocation(tickPercent);
+    const perceivedX = perceivedLocation.x;
+    const perceivedY = perceivedLocation.y;
+
+    // Perceived location
+
+    if (this.dying === -1) {
+      this.region.context.globalAlpha = 0.7;
+      this.region.context.fillStyle = "#FFFF00";
+      this.region.context.fillRect(
+        perceivedX * Settings.tileSize,
+        perceivedY * Settings.tileSize,
+        Settings.tileSize,
+        Settings.tileSize,
+      );
+      this.region.context.globalAlpha = 1;
+    }
+
+    // Draw player on true tile
+    this.region.context.fillStyle = "#ffffff73";
+    // feedback for when you shoot
+    if (this.shouldShowAttackAnimation()) {
+      this.region.context.fillStyle = "#00FFFF";
+    }
+    if (this.dying > -1) {
+      this.region.context.fillStyle = "#000";
+    }
+    this.region.context.strokeStyle = "#FFFFFF73";
+    this.region.context.lineWidth = 3;
+    this.region.context.fillRect(
+      this.location.x * Settings.tileSize,
+      this.location.y * Settings.tileSize,
+      Settings.tileSize,
+      Settings.tileSize,
+    );
+
+    // Destination location
+    if (Settings.targetTileEnabled) {
+      this.region.context.globalAlpha = 0.5;
+      this.region.context.strokeStyle = Settings.targetTileColor;
+      this.region.context.lineWidth = 3;
+      this.region.context.strokeRect(
+        this.destinationLocation!.x * Settings.tileSize,
+        this.destinationLocation!.y * Settings.tileSize,
+        Settings.tileSize,
+        Settings.tileSize,
+      );
+      this.region.context.globalAlpha = 1;
+    }
+    this.region.context.restore();
+    return { x: perceivedX, y: perceivedY };
+  }
+
+  drawUILayer(
+    tickPercent: number,
+    projector: UILayerProjector,
+    context: OffscreenCanvasRenderingContext2D,
+    scale: number,
+  ) {
+    if (this.dying > -1 || !projector.visible) {
+      return;
+    }
+    const overheadPosition = projector.atHeight(projector.logicalHeight);
+    context.save();
+    context.translate(overheadPosition.x, overheadPosition.y);
+
+    if (Settings.rotated === "south") {
+      context.rotate(Math.PI);
+    }
+    this.drawHPBar(context, scale, 0);
+    this.drawOverheadPrayers(context, scale);
+    context.restore();
+
+    const hitsplatPosition = projector.atHeight(projector.logicalHeight * 0.5);
+    context.save();
+    context.translate(hitsplatPosition.x, hitsplatPosition.y);
+    if (Settings.rotated === "south") context.rotate(Math.PI);
+    this.drawHitsplats(context, scale);
+    context.restore();
+  }
+
+  create3dModel(): Model {
+    return CacheRenderModel.forRenderable(
+      this,
+      CacheRenderReferences.player(
+        [
+          this.equipment.helmet,
+          this.equipment.necklace,
+          this.equipment.cape,
+          this.equipment.chest,
+          this.equipment.legs,
+          this.equipment.feet,
+          this.equipment.gloves,
+          this.equipment.ring,
+          this.equipment.ammo,
+          this.equipment.weapon,
+          this.equipment.offhand,
+        ]
+          .filter((e) => !!e)
+          .map((e) => e.cacheItemId ?? e.itemName),
+        {
+          idle: this.getIdlePoseId(),
+          walk: this.getWalkPoseId(),
+          run: this.getRunPoseId()
+        },
+      ),
+    );
+  }
+
+  override get animationIndex() {
+    return this.currentPoseAnimation;
+  }
+
+  override get shouldBlendAnimationWithPose() {
+    return this.visualPath.length > 0
+      || this.perceivedLocation.x !== this.location.x
+      || this.perceivedLocation.y !== this.location.y;
+  }
+
+  override get drawOutline() {
+    return false;
+  }
+
+  override get attackAnimationId() {
+    return this.equipment.weapon?.attackAnimationId;
+  }
+
+  get canBlendAttackAnimation() {
+    return true;
+  }
+
+  override get deathAnimationLength() {
+    return 4;
+  }
+  override get deathAnimationId() {
+    return PlayerAnimationIndices.Dying;
+  }
+}
+
+class ClickMarker extends TileMarker {
+  private readonly targetMarker: boolean;
+
+  constructor(region: Region, location: Location, color?: string) {
+    super(region, location, color ?? Settings.targetTileColor, 1, false);
+    this.targetMarker = color === undefined;
+  }
+  override get color() {
+    return this.targetMarker ? Settings.targetTileColor : this._color;
+  }
+  override visible(tickPercent: number) {
+    return !this.targetMarker || Settings.targetTileEnabled;
+  }
+  override draw() {
+    if (this.targetMarker && !Settings.targetTileEnabled) return;
+    super.draw();
+  }
+  remove() {
+    this.dying = 0;
+  }
+}

@@ -1,0 +1,417 @@
+"use strict";
+import { AccountControls } from "./controlpanels/AccountControls";
+import { AncientsSpellbookControls } from "./controlpanels/AncientsSpellbookControls";
+import { BaseControls } from "./controlpanels/BaseControls";
+import { ClanChatControls } from "./controlpanels/ClanChatControls";
+import { CombatControls } from "./controlpanels/CombatControls";
+import { EmotesControls } from "./controlpanels/EmotesControls";
+import { EmptyControls } from "./controlpanels/EmptyControls";
+import { EquipmentControls } from "./controlpanels/EquipmentControls";
+import { FriendsControls } from "./controlpanels/FriendsControls";
+import { InventoryControls } from "./controlpanels/InventoryControls";
+import { MusicControls } from "./controlpanels/MusicControls";
+import { PrayerControls } from "./controlpanels/PrayerControls";
+import { QuestsControls } from "./controlpanels/QuestsControls";
+import { SettingsControls } from "./controlpanels/SettingsControls";
+import { StatsControls } from "./controlpanels/StatsControls";
+import { Settings } from "./Settings";
+import { Location } from "./Location";
+import { Chrome } from "./Chrome";
+import { FixedLayout, FIXED_BOTTOM_TABS_Y, FIXED_PANEL, FIXED_TABS_X, FIXED_TOP_TABS_Y, FIXED_VIEWPORT } from "./FixedLayout";
+import { MapController } from "./MapController";
+import { BoostPanel } from "./BoostPanel";
+import type { MultiColorTextBlock } from "./ContextMenu";
+
+interface TabPosition {
+  x: number;
+  y: number;
+}
+
+const BASE_WIDTH = 33 * 7;
+const BASE_HEIGHT = 36 * 2 + 275;
+
+export class ControlPanelController {
+  static controls = Object.freeze({
+    COMBAT: new CombatControls(),
+    INVENTORY: new InventoryControls(),
+    PRAYER: new PrayerControls(),
+    EQUIPMENT: new EquipmentControls(),
+    STATS: new StatsControls(),
+    ANCIENTSSPELLBOOK: new AncientsSpellbookControls(),
+    SETTINGS: new SettingsControls(),
+  });
+
+  static controller = new ControlPanelController();
+
+  desktopControls: BaseControls[];
+  mobileControls: BaseControls[];
+  controls: BaseControls[];
+  selectedControl: BaseControls;
+
+  public width: number;
+  public height: number;
+
+  private boostPanel = new BoostPanel();
+
+  isUsingExternalUI = false;
+
+  constructor() {
+    this.width = BASE_WIDTH;
+    this.height = BASE_HEIGHT;
+
+    this.desktopControls = [
+      ControlPanelController.controls.COMBAT,
+      ControlPanelController.controls.STATS,
+      new QuestsControls(),
+      ControlPanelController.controls.INVENTORY,
+      ControlPanelController.controls.EQUIPMENT,
+      ControlPanelController.controls.PRAYER,
+      ControlPanelController.controls.ANCIENTSSPELLBOOK,
+      new EmptyControls(),
+      new FriendsControls(),
+      new AccountControls(),
+      new ClanChatControls(),
+      ControlPanelController.controls.SETTINGS,
+      new EmotesControls(),
+      new MusicControls(),
+    ];
+
+    this.mobileControls = [
+      ControlPanelController.controls.COMBAT,
+      ControlPanelController.controls.PRAYER,
+      ControlPanelController.controls.ANCIENTSSPELLBOOK,
+      new EmotesControls(),
+      new ClanChatControls(),
+      new FriendsControls(),
+      new AccountControls(),
+
+      // break
+      ControlPanelController.controls.INVENTORY,
+      ControlPanelController.controls.EQUIPMENT,
+      ControlPanelController.controls.STATS,
+      new QuestsControls(),
+      new MusicControls(),
+      ControlPanelController.controls.SETTINGS,
+      new EmptyControls(),
+    ];
+    this.controls = Settings.mobileCheck() ? this.mobileControls : this.desktopControls;
+
+    this.selectedControl = ControlPanelController.controls.PRAYER;
+    document.addEventListener("keydown", (event) => {
+      if (Settings.is_keybinding) {
+        return;
+      }
+
+      if (this.isUsingExternalUI) {
+        return;
+      }
+
+      this.controls.forEach((control) => {
+        if (control.keyBinding === event.key) {
+          this.selectedControl = control;
+          event.preventDefault();
+        }
+      });
+    });
+  }
+
+  getTabScale() {
+    const { width, height } = Chrome.size();
+
+    if (FixedLayout.enabled) {
+      const k = FixedLayout.scale(width);
+      // The 204x275 panel art is drawn into the fixed client's 190x261 panel.
+      Settings.controlPanelScale = (k * FIXED_PANEL.width) / 204;
+      this.width = BASE_WIDTH * k;
+      this.height = BASE_HEIGHT * k;
+      return k;
+    }
+
+    const controlAreaHeight = height - MapController.controller.height;
+    let scaleRatio = controlAreaHeight / 7 / 36;
+
+    let maxScaleRatio = Settings.maxUiScale;
+    if (Settings.mobileCheck() && width > 600) {
+      maxScaleRatio = Settings.maxUiScale * 1.1;
+    }
+
+    if (scaleRatio > maxScaleRatio) {
+      scaleRatio = maxScaleRatio;
+    }
+
+    // not the best place for these setters...
+    Settings.controlPanelScale = scaleRatio * 0.915;
+    this.width = BASE_WIDTH * scaleRatio;
+    this.height = BASE_HEIGHT * scaleRatio;
+
+    return scaleRatio;
+  }
+
+  boostPosition() {
+    const { width, height } = Chrome.size();
+    const scale = this.getTabScale();
+    if (FixedLayout.enabled) {
+      // bottom-left of the 3D scene, like an infobox column
+      return { x: (FIXED_VIEWPORT.x + 4) * scale, y: (FIXED_VIEWPORT.y + FIXED_VIEWPORT.height - 4) * scale };
+    }
+    if (Settings.mobileCheck()) {
+      const mapHeight = 170 * Settings.minimapScale;
+      const spacer = (height - mapHeight - 36 * scale * 7) / 2;
+      return { x: 15, y: mapHeight + spacer };
+    } else {
+      return {
+        x: width - 231 * scale + 28,
+        y: height - 72 * scale,
+      };
+    }
+  }
+
+  tabPosition(i: number): TabPosition {
+    // let scale = Settings.controlPanelScale
+    const { width, height } = Chrome.size();
+    const scale = this.getTabScale();
+
+    if (FixedLayout.enabled) {
+      return {
+        x: (FIXED_TABS_X + (i % 7) * 33) * scale,
+        y: (i < 7 ? FIXED_TOP_TABS_Y : FIXED_BOTTOM_TABS_Y) * scale,
+      };
+    }
+
+    if (Settings.mobileCheck()) {
+      const mapHeight = 170 * Settings.minimapScale;
+      const spacer = (height - mapHeight - 36 * scale * 7) / 2;
+      if (i < 7) {
+        return { x: 15, y: mapHeight + spacer + i * 36 * scale };
+      } else {
+        return {
+          x: width - 33 * scale - 15,
+          y: mapHeight + spacer + (i - 7) * 36 * scale,
+        };
+      }
+    } else {
+      const x = i % 7;
+      const y = Math.floor(i / 7);
+      return {
+        x: width - 231 * scale + x * 33 * scale,
+        y: height - 72 * scale + y * 36 * scale,
+      };
+    }
+  }
+  cursorMovedTo(e: MouseEvent) {
+    const scale = Settings.controlPanelScale;
+    if (this.selectedControl) {
+      const x = e.offsetX;
+      const y = e.offsetY;
+
+      const panelWidth = 204 * scale;
+      const panelHeight = 275 * scale;
+      const panelPosition = this.controlPosition(this.selectedControl);
+      const panelX = panelPosition.x;
+      const panelY = panelPosition.y;
+      if (panelX < x && x < panelX + panelWidth) {
+        if (panelY < y && y < panelY + panelHeight) {
+          const relativeX = x - panelX;
+          const relativeY = y - panelY;
+          this.selectedControl.cursorMovedto(relativeX, relativeY);
+        }
+      }
+    }
+  }
+
+  hoverAction(e: MouseEvent): MultiColorTextBlock[] | null {
+    if (!this.selectedControl) return null;
+    const scale = Settings.controlPanelScale;
+    const panelPosition = this.controlPosition(this.selectedControl);
+    const panelWidth = 204 * scale;
+    const panelHeight = 275 * scale;
+    if (
+      e.offsetX < panelPosition.x ||
+      e.offsetX >= panelPosition.x + panelWidth ||
+      e.offsetY < panelPosition.y ||
+      e.offsetY >= panelPosition.y + panelHeight
+    ) {
+      return null;
+    }
+    return this.selectedControl.hoverAction(e.offsetX - panelPosition.x, e.offsetY - panelPosition.y);
+  }
+  controlPanelRightClick(e: MouseEvent): boolean {
+    let intercepted = false;
+
+    const scale = Settings.controlPanelScale;
+    const x = e.offsetX;
+    const y = e.offsetY;
+
+    const panelWidth = 204 * scale;
+    const panelHeight = 275 * scale;
+    const panelPosition = this.controlPosition(this.selectedControl);
+    const panelX = panelPosition.x;
+    const panelY = panelPosition.y;
+    if (panelX < x && x < panelX + panelWidth) {
+      if (panelY < y && y < panelY + panelHeight) {
+        const relativeX = x - panelX;
+        const relativeY = y - panelY;
+        intercepted = true;
+        this.selectedControl.panelRightClick(relativeX, relativeY);
+      }
+    }
+
+    return intercepted;
+  }
+
+  controlPanelClickUp(e: MouseEvent): boolean {
+    const scale = Settings.controlPanelScale;
+    if (!this.selectedControl) {
+      return false;
+    }
+
+    let intercepted = false;
+
+    const x = e.offsetX;
+    const y = e.offsetY;
+
+    const panelWidth = 204 * scale;
+    const panelHeight = 275 * scale;
+    const panelPosition = this.controlPosition(this.selectedControl);
+    const panelX = panelPosition.x;
+    const panelY = panelPosition.y;
+    if (panelX < x && x < panelX + panelWidth) {
+      if (panelY < y && y < panelY + panelHeight) {
+        const relativeX = x - panelX;
+        const relativeY = y - panelY;
+        intercepted = true;
+        this.selectedControl.panelClickUp(relativeX, relativeY);
+      }
+    }
+    this.selectedControl.onMouseUp();
+
+    return intercepted;
+  }
+
+  setActiveControl(index: keyof ((typeof ControlPanelController)["controls"])) {
+    this.selectedControl = ControlPanelController.controls[index];
+  }
+
+  controlPanelClickDown(e: MouseEvent): boolean {
+    let intercepted = false;
+
+    const scale = this.getTabScale();
+
+    const x = e.offsetX;
+    const y = e.offsetY;
+
+    this.controls.forEach((control: BaseControls, index: number) => {
+      const tabPosition = this.tabPosition(index);
+      if (tabPosition.x <= x && x < tabPosition.x + 33 * scale) {
+        if (tabPosition.y <= y && y < tabPosition.y + 36 * scale) {
+          intercepted = true;
+          if (this.controls[index] === this.selectedControl) {
+            this.selectedControl = null;
+            return;
+          }
+          this.selectedControl = this.controls[index];
+        }
+      }
+    });
+
+    if (!this.selectedControl) {
+      return intercepted;
+    }
+
+    const panelWidth = 204 * scale;
+    const panelHeight = 275 * scale;
+    const panelPosition = this.controlPosition(this.selectedControl);
+    const panelX = panelPosition.x;
+    const panelY = panelPosition.y;
+    if (panelX < x && x < panelX + panelWidth) {
+      if (panelY < y && y < panelY + panelHeight) {
+        const relativeX = x - panelX;
+        const relativeY = y - panelY;
+        intercepted = true;
+        this.selectedControl.panelClickDown(relativeX, relativeY);
+      }
+    }
+
+    return intercepted;
+  }
+
+  controlPosition(control: BaseControls): Location {
+    const scale = this.getTabScale();
+    const { width, height } = Chrome.size();
+
+    if (FixedLayout.enabled) {
+      return { x: FIXED_PANEL.x * scale, y: FIXED_PANEL.y * scale };
+    }
+
+    if (Settings.mobileCheck()) {
+      const mapHeight = 170 * Settings.minimapScale;
+      const spacer = (height - mapHeight - 36 * scale * 7) / 2;
+      if (this.selectedControl.appearsOnLeftInMobile) {
+        // left side mobile
+        return { x: 33 * scale + 15, y: mapHeight + spacer };
+      } else {
+        // right side mobile
+        return {
+          x: width - 33 * scale - 15 - 200 * Settings.controlPanelScale,
+          y: mapHeight + spacer,
+        };
+      }
+    } else {
+      // desktop compact
+      return {
+          x: width - 188 * scale,
+        y: height - 72 * scale - 251 * scale,
+      };
+    }
+  }
+
+  onWorldTick() {
+    this.controls.forEach((control) => {
+      control.onWorldTick();
+    });
+  }
+
+  draw(context: CanvasRenderingContext2D) {
+    context.fillStyle = "#000";
+    const scale = this.getTabScale();
+
+    if (this.selectedControl && this.selectedControl.draw) {
+      const position = this.controlPosition(this.selectedControl);
+      this.selectedControl.draw(context, this, position.x, position.y);
+    }
+    
+    // TODO: make this rendering configurable
+    const boostPosition = this.boostPosition();
+    this.boostPanel.draw(context, scale, boostPosition.x, boostPosition.y);
+
+    let selectedPosition: TabPosition = null;
+
+    this.controls.forEach((control, index) => {
+      const tabPosition = this.tabPosition(index);
+      if (control.tabImage) {
+        context.drawImage(
+          control.tabImage,
+          tabPosition.x,
+          tabPosition.y,
+          control.tabImage.width * scale,
+          control.tabImage.height * scale,
+        );
+      }
+
+      if (control.isAvailable === false) {
+        context.fillStyle = "#00000099";
+        context.fillRect(tabPosition.x, tabPosition.y, 33 * scale, 36 * scale);
+      }
+
+      if (control === this.selectedControl) {
+        selectedPosition = tabPosition;
+      }
+    });
+
+    if (selectedPosition) {
+      context.strokeStyle = "#00FF0073";
+      context.lineWidth = 3;
+      context.strokeRect(selectedPosition.x, selectedPosition.y, 33 * scale, 36 * scale);
+    }
+  }
+}

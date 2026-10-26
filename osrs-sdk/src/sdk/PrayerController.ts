@@ -1,0 +1,149 @@
+import { filter, find, intersection } from "lodash";
+import { Augury } from "../content/prayers/Augury";
+import { BurstOfStrength } from "../content/prayers/BurstOfStrength";
+import { Chivalry } from "../content/prayers/Chivalry";
+import { ClarityOfThought } from "../content/prayers/ClarityOfThought";
+import { EagleEye } from "../content/prayers/EagleEye";
+import { HawkEye } from "../content/prayers/HawkEye";
+import { ImprovedReflexes } from "../content/prayers/ImprovedReflexes";
+import { IncredibleReflexes } from "../content/prayers/IncredibleReflexes";
+import { MysticLore } from "../content/prayers/MysticLore";
+import { MysticMight } from "../content/prayers/MysticMight";
+import { MysticWill } from "../content/prayers/MysticWill";
+import { Piety } from "../content/prayers/Piety";
+import { Preserve } from "../content/prayers/Preserve";
+import { ProtectItem } from "../content/prayers/ProtectItem";
+import { ProtectMage } from "../content/prayers/ProtectMage";
+import { ProtectMelee } from "../content/prayers/ProtectMelee";
+import { ProtectRange } from "../content/prayers/ProtectRange";
+import { RapidHeal } from "../content/prayers/RapidHeal";
+import { RapidRestore } from "../content/prayers/RapidRestore";
+import { Redemption } from "../content/prayers/Redemption";
+import { Retribution } from "../content/prayers/Retribution";
+import { Rigour } from "../content/prayers/Rigour";
+import { RockSkin } from "../content/prayers/RockSkin";
+import { SharpEye } from "../content/prayers/SharpEye";
+import { Smite } from "../content/prayers/Smite";
+import { SteelSkin } from "../content/prayers/SteelSkin";
+import { SuperhumanStrength } from "../content/prayers/SuperhumanStrength";
+import { ThickSkin } from "../content/prayers/ThickSkin";
+import { UltimateStrength } from "../content/prayers/UltimateStrength";
+import { BasePrayer, PrayerGroups } from "./BasePrayer";
+import { Player } from "./Player";
+import { Settings } from "./Settings";
+import RedemptionHealSound from "../assets/sounds/redemption_heal_2681.ogg";
+
+export class PrayerController {
+  drainCounter = 0;
+  player: Player;
+
+  constructor(player: Player) {
+    this.player = player;
+  }
+
+  tick(player: Player) {
+    // "transfer" prayers from client to "server"
+    this.prayers.forEach((prayer) => prayer.tick());
+
+    // calc prayer drain
+    const prayerDrainThisTick = this.drainRate();
+    this.drainCounter += prayerDrainThisTick;
+    while (this.drainCounter > this.player.prayerDrainResistance) {
+      this.player.currentStats.prayer--;
+      this.drainCounter -= this.player.prayerDrainResistance;
+    }
+
+    // deactivate prayers when out of prayer
+    if (this.player.currentStats.prayer <= 0) {
+      this.deactivateAll(player);
+    }
+  }
+
+  deactivateAll(player: Player) {
+    this.activePrayers().forEach((prayer) => prayer.deactivate());
+    this.player.currentStats.prayer = 0;
+  }
+
+  disableProtectionPrayersForTicks(ticks: number) {
+    ["Protect from Magic", "Protect from Range", "Protect from Melee"].forEach((name) => {
+      this.findPrayerByName(name).disableForTicks(ticks);
+    });
+  }
+
+  checkRedemption(player: Player) {
+    if (
+      this.isPrayerActiveByName("Redemption") &&
+      this.player.currentStats.hitpoint > 0 &&
+      this.player.currentStats.hitpoint <= Math.floor(this.player.stats.hitpoint / 10)
+    ) {
+      this.deactivateAll(player);
+      player.currentStats.hitpoint += Math.floor(player.stats.prayer / 4);
+      if (Settings.playsAudio) {
+        new Audio(RedemptionHealSound).play();
+      }
+    }
+  }
+
+  drainRate(): number {
+    return this.activePrayers().reduce((a, b) => a + b.drainRate(), 0);
+  }
+
+  findPrayerByName(name: string): BasePrayer {
+    return find(this.prayers, (prayer: BasePrayer) => prayer.name === name);
+  }
+
+  isPrayerActiveByName(name: string): BasePrayer {
+    return find(this.activePrayers(), (prayer: BasePrayer) => prayer.name === name);
+  }
+
+  activePrayers(): BasePrayer[] {
+    return filter(this.prayers, (prayer: BasePrayer) => prayer.isActive);
+  }
+
+  matchFeature(feature: string): BasePrayer {
+    return find(this.activePrayers(), (prayer: BasePrayer) => prayer.feature() === feature);
+  }
+
+  matchGroup(group: PrayerGroups): BasePrayer {
+    return find(this.activePrayers(), (prayer: BasePrayer) => prayer.groups.includes(group));
+  }
+
+  overhead(): BasePrayer {
+    return find(
+      this.activePrayers(),
+      (prayer: BasePrayer) => intersection(prayer.groups, [PrayerGroups.OVERHEADS]).length,
+    ) as BasePrayer;
+  }
+
+  prayers: BasePrayer[] = [
+    new ThickSkin(),
+    new BurstOfStrength(),
+    new ClarityOfThought(),
+    new SharpEye(),
+    new MysticWill(),
+    new RockSkin(),
+    new SuperhumanStrength(),
+    new ImprovedReflexes(),
+    new RapidRestore(),
+    new RapidHeal(),
+    new ProtectItem(),
+    new HawkEye(),
+    new MysticLore(),
+    new SteelSkin(),
+    new UltimateStrength(),
+    new IncredibleReflexes(),
+    new ProtectMage(),
+    new ProtectRange(),
+    new ProtectMelee(),
+    new EagleEye(),
+    new MysticMight(),
+    new Retribution(),
+    new Redemption(),
+    new Smite(),
+    new Preserve(),
+    new Chivalry(),
+    new Piety(),
+    new Rigour(),
+    new Augury(),
+  ];
+}

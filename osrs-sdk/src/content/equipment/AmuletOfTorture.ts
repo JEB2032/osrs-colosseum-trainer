@@ -1,0 +1,51 @@
+import InventImage from "../../assets/images/equipment/Amulet_of_torture.png";
+import { Necklace } from "../../sdk/gear/Necklace";
+import { ItemName } from "../../sdk/ItemName";
+import { Assets } from "../../sdk/utils/Assets";
+import { ImageLoader } from "../../sdk/utils/ImageLoader";
+import { CACHE_ASSETS } from "../../assets/CacheAssets";
+
+export class AmuletOfTorture extends Necklace {
+  get cacheItemId(): number { return CACHE_ASSETS.items.amuletOfTorture.id; }
+  inventorySprite: HTMLImageElement = ImageLoader.createImage(this.inventoryImage);
+
+  get inventoryImage() {
+    return InventImage;
+  }
+  get itemName(): ItemName {
+    return ItemName.AMULET_OF_TORTURE;
+  }
+  get weight(): number {
+    return 0.01;
+  }
+
+  constructor() {
+    super();
+    this.bonuses = {
+      attack: {
+        stab: 15,
+        slash: 15,
+        crush: 15,
+        magic: 0,
+        range: 0,
+      },
+      defence: {
+        stab: 0,
+        slash: 0,
+        crush: 0,
+        magic: 0,
+        range: 0,
+      },
+      other: {
+        meleeStrength: 10,
+        rangedStrength: 0,
+        magicDamage: 0,
+        prayer: 2,
+      },
+      targetSpecific: {
+        undead: 0,
+        slayer: 0,
+      },
+    };
+  }
+}

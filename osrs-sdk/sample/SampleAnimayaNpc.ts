@@ -1,0 +1,149 @@
+import {
+  CacheRender,
+  CacheRenderModel,
+  CacheRenderReferences,
+  DelayedAction,
+  GraphicsObject,
+  Location,
+  Mob,
+  Projectile,
+  Region,
+  Settings,
+  UILayerProjector,
+  UnitOptions,
+} from "../src";
+import { SAMPLE_ASSETS } from "./assets";
+
+const TRIPLE_ATTACK_SHORT = 6; // Cache sequence 10887.
+const TRIPLE_ATTACK_TICKS = 11;
+const TRIPLE_HITS = new Map([
+  [3, 15],
+  [6, 25],
+  [9, 35],
+]);
+
+const ACTIVE_SOL_ATTACK = {
+  animation: TRIPLE_ATTACK_SHORT,
+  ticks: TRIPLE_ATTACK_TICKS,
+  hits: TRIPLE_HITS,
+  spotAnim: SAMPLE_ASSETS.spotAnims.solTripleAttackShort.id,
+};
+const SOL_FRAME_SOUND_DELAY_MS = 240;
+
+/** Sol Heredit fixture used to exercise skeleton-based Animaya rendering. */
+export class SampleAnimayaNpc extends Mob {
+  private attackTick = 0;
+
+  constructor(region: Region, location: Location, options: UnitOptions = {}) {
+    super(region, location, options);
+    this.autoRetaliate = false;
+  }
+
+  override mobName() { return "Sol Heredit (Animaya)"; }
+  override get size() { return 5; }
+  override get height() { return 6; }
+  override canAttack() { return false; }
+  override get attackRange() { return 10; }
+
+  override timerStep() {
+    return;
+    if (this.attackTick === 0) {
+      this.currentStats.hitpoint = this.stats.hitpoint;
+      this.playAnimation(ACTIVE_SOL_ATTACK.animation);
+      this.addSpotAnim({
+        id: ACTIVE_SOL_ATTACK.spotAnim,
+        channel: "sol-triple-attack",
+        animation: ACTIVE_SOL_ATTACK.animation,
+        height: 0,
+      });
+      DelayedAction.registerDelayedAction(
+        new DelayedAction(() => this.spawnDamageDustClouds(), 3),
+      );
+    }
+
+    const damage = ACTIVE_SOL_ATTACK.hits.get(this.attackTick);
+    if (damage !== undefined) {
+      // timerStep runs immediately before incoming attacks are processed, so
+      // this one-tick hidden projectile creates the hitsplat on this boundary.
+      this.addProjectile(new Projectile(null, damage, this, this, "stab", {
+        visuals: { hidden: true },
+        setDelay: 1,
+      }));
+    }
+
+    this.attackTick = (this.attackTick + 1) % ACTIVE_SOL_ATTACK.ticks;
+  }
+
+  override drawUILayer(
+    tickPercent: number,
+    projector: UILayerProjector,
+    context: OffscreenCanvasRenderingContext2D,
+    scale: number,
+  ) {
+    super.drawUILayer(tickPercent, projector, context, scale);
+
+    const tickProgressMs = Math.round(tickPercent * Settings.tickMs);
+    const hitsplatPosition = projector.atHeight(projector.logicalHeight * 0.5);
+    context.save();
+    context.translate(hitsplatPosition.x, hitsplatPosition.y);
+    if (Settings.rotated === "south") context.rotate(Math.PI);
+    context.font = "18px Stats_11";
+    context.textAlign = "center";
+    context.lineWidth = 3;
+    context.strokeStyle = "#000000";
+    context.strokeText(String(tickProgressMs), 0, 42);
+    context.fillStyle = "#FFFF00";
+    context.fillText(String(tickProgressMs), 0, 42);
+    context.restore();
+  }
+
+  override damageTaken() {
+    // Keep the looping timing fixture readable. Player-originated hits still
+    // exercise the radial spotanim burst below.
+    const isLoopingSelfHit = this.incomingProjectiles.some(
+      (projectile) => projectile.from === this && projectile.remainingDelay === 0,
+    );
+    if (isLoopingSelfHit) return;
+
+    this.spawnDamageDustClouds();
+  }
+
+  private spawnDamageDustClouds() {
+    // Demonstrate a radial burst of standalone cache-derived GraphicsObjects
+    // whenever the sample Sol receives a hit. Each object owns its animation
+    // clock and is rotated toward the outside of the arena.
+    if (!CacheRender.isConfigured()) return;
+    const centreX = this.location.x + this.size / 2;
+    const centreY = this.location.y - this.size / 2;
+    // Four rings of sixteen effects exercise independent delays and automatic
+    // one-shot removal (64 objects per hit).
+    for (let ring = 1; ring <= 4; ring++) {
+      for (let direction = 0; direction < 16; direction++) {
+        const angle = direction * Math.PI / 8;
+        const x = Math.round(centreX + Math.cos(angle) * (2 + ring));
+        const y = Math.round(centreY + Math.sin(angle) * (2 + ring));
+        const rotation = angle * 1024 / (Math.PI * 2);
+        this.region.addEntity(new GraphicsObject(
+          this.region,
+          { x, y },
+          SAMPLE_ASSETS.spotAnims.solDust.id,
+          { rotation, delay: ring * 2, height: 0 },
+        ));
+      }
+    }
+  }
+
+  override setStats() {
+    this.weapons = {};
+    this.stats = { attack: 0, strength: 0, defence: 100, range: 0, magic: 0, hitpoint: 10000 };
+    this.currentStats = JSON.parse(JSON.stringify(this.stats));
+  }
+
+  override create3dModel() {
+    return CacheRenderModel.forRenderable(
+      this,
+      CacheRenderReferences.npc(SAMPLE_ASSETS.npcs.solHeredit.id),
+      { frameSoundDelayMs: SOL_FRAME_SOUND_DELAY_MS },
+    );
+  }
+}

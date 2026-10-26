@@ -1,0 +1,639 @@
+"use strict";
+import { ReplayLog } from "./Replay";
+import { every } from "lodash";
+
+import { Settings } from "./Settings";
+import { LineOfSight } from "./LineOfSight";
+import { Pathing } from "./Pathing";
+
+import { Weapon } from "./gear/Weapon";
+import { Unit, UnitBonuses, UnitOptions, UnitTypes } from "./Unit";
+import { Location } from "./Location";
+import { Collision } from "./Collision";
+import { Random } from "./Random";
+import { Region } from "./Region";
+import { CanvasSpriteModel } from "./rendering/CanvasSpriteModel";
+import { Model } from "./rendering/Model";
+import { InputController } from "./Input";
+import { parseText } from "./utils/Text";
+import { UnitStats } from "./UnitStats";
+import { Trainer } from "./Trainer";
+import { UILayerProjector } from "./Renderable";
+
+export enum AttackIndicators {
+  NONE = 0,
+  HIT = 1,
+  BLOCKED = 2,
+  SCAN = 3,
+}
+
+export interface WeaponsMap {
+  [key: string]: Weapon;
+}
+
+export class Mob extends Unit {
+  static mobIdTracker = 0;
+  mobId: number = Mob.mobIdTracker++;
+  hasResurrected = false;
+  attackFeedback: AttackIndicators;
+  stats: UnitStats;
+  currentStats: UnitStats;
+  hadLOS: boolean;
+  hasLOS: boolean;
+  weapons: WeaponsMap;
+  attackStyle: string;
+  tcc: Location[];
+  removableWithRightClick = false;
+
+  constructor(region: Region, location: Location, options?: UnitOptions) {
+    super(region, location, options);
+  }
+
+  override get type() {
+    return UnitTypes.MOB;
+  }
+
+  canBeAttacked() {
+    return true;
+  }
+
+  override setStats() {
+    // non boosted numbers
+    this.stats = {
+      attack: 99,
+      strength: 99,
+      defence: 99,
+      range: 99,
+      magic: 99,
+      hitpoint: 99,
+    };
+
+    // with boosts
+    this.currentStats = {
+      attack: 99,
+      strength: 99,
+      defence: 99,
+      range: 99,
+      magic: 99,
+      hitpoint: 99,
+    };
+  }
+
+  override get bonuses(): UnitBonuses {
+    return {
+      attack: {
+        stab: 0,
+        slash: 0,
+        crush: 0,
+        magic: 0,
+        range: 0,
+      },
+      defence: {
+        stab: 0,
+        slash: 0,
+        crush: 0,
+        magic: 0,
+        range: 0,
+      },
+      other: {
+        meleeStrength: 0,
+        rangedStrength: 0,
+        magicDamage: 0,
+        prayer: 0,
+      },
+    };
+  }
+
+  /**
+   *
+   * @returns the next location to move to
+   */
+  getNextMovementStep(): { dx: number; dy: number } {
+    let dx = this.location.x + Math.sign(this.aggro.location.x - this.location.x);
+    let dy = this.location.y + Math.sign(this.aggro.location.y - this.location.y);
+
+    if (
+      Collision.collisionMath(
+        this.location.x,
+        this.location.y,
+        this.size,
+        this.aggro.location.x,
+        this.aggro.location.y,
+        1,
+      )
+    ) {
+      // Random movement if player is under the mob.
+      if (Random.get() < 0.5) {
+        dy = this.location.y;
+        if (Random.get() < 0.5) {
+          dx = this.location.x + 1;
+        } else {
+          dx = this.location.x - 1;
+        }
+      } else {
+        dx = this.location.x;
+        if (Random.get() < 0.5) {
+          dy = this.location.y + 1;
+        } else {
+          dy = this.location.y - 1;
+        }
+      }
+    } else if (Collision.collisionMath(dx, dy, this.size, this.aggro.location.x, this.aggro.location.y, 1)) {
+      // allows corner safespotting
+      dy = this.location.y;
+    }
+
+    if (this.attackDelay > this.attackSpeed) {
+      // No movement right after melee dig. 8 ticks after the dig it should be able to move again.
+      dx = this.location.x;
+      dy = this.location.y;
+    }
+    return { dx, dy };
+  }
+
+  override timerStep() {
+    if (this.dying === 0) return;
+    this.age--;
+    if (this.age > 0) {
+      // Spawn-delayed NPCs advance their attack clock, but do not yet consume
+      // their initial freeze/stun. Their queue still receives incoming hits.
+      this.attackDelay--;
+      return;
+    }
+    super.timerStep();
+  }
+
+  private isRedXStalled() {
+    return this.aggro?.type === UnitTypes.PLAYER
+      && this.aggro.aggro === this
+      && Collision.collisionMath(
+        this.location.x,
+        this.location.y,
+        this.size,
+        this.aggro.location.x,
+        this.aggro.location.y,
+        1,
+      );
+  }
+
+  override movementStep() {
+    if (this.dying === 0 || this.currentStats.hitpoint <= 0) {
+      return;
+    }
+    if (this.age > 0) {
+      return;
+    }
+    let moved = false;
+    this.setHasLOS();
+    // Red-x prevents the overlapping NPC from entering its movement cycle at
+    // all.
+    if (this.canMove() && this.aggro && !this.isRedXStalled()) {
+      // NPC clipping flags persist between ticks. Only an NPC which is trying
+      // to move clears its old footprint, and it claims its resulting
+      // footprint even when the attempted movement is blocked.
+      if (this.consumesSpace) {
+        this.region.clearTileCollisionFlags(this.location.x, this.location.y, this.size);
+      }
+      const previousLocation = { ...this.location };
+      const { dx, dy } = this.getNextMovementStep();
+
+      const xOff = dx - this.location.x;
+      const yOff = this.location.y - dy;
+
+      let xTiles = this.getXMovementTiles(xOff, yOff);
+      let yTiles = this.getYMovementTiles(xOff, yOff);
+      let xSpace = every(
+        xTiles.map((location: Location) =>
+          Pathing.canTileBePathedTo(this.region, location.x, location.y, 1, this.consumesSpace),
+        ),
+        Boolean,
+      );
+      let ySpace = every(
+        yTiles.map((location: Location) =>
+          Pathing.canTileBePathedTo(this.region, location.x, location.y, 1, this.consumesSpace),
+        ),
+        Boolean,
+      );
+      // The client allows NPCs larger than one tile to cut a diagonal corner
+      // as long as their destination footprint is clear. Only 1x1 NPCs must
+      // also be able to occupy both adjacent cardinal tiles.
+      const movingDiagonally = xOff !== 0 && yOff !== 0;
+      const both = movingDiagonally && this.size > 1
+        ? Pathing.canTileBePathedTo(this.region, dx, dy, this.size, this.consumesSpace)
+        : xSpace && ySpace;
+
+      // if (this.mobName() === EntityName.JAL_AK){
+      //   this.tcc =  xTiles; //xTiles.concat(yTiles);
+      // }
+
+      if (!both) {
+        xTiles = this.getXMovementTiles(xOff, 0);
+        xSpace = every(
+          xTiles.map((location: Location) =>
+            Pathing.canTileBePathedTo(this.region, location.x, location.y, 1, this.consumesSpace),
+          ),
+          Boolean,
+        );
+        if (!xSpace) {
+          yTiles = this.getYMovementTiles(0, yOff);
+          ySpace = every(
+            yTiles.map((location: Location) =>
+              Pathing.canTileBePathedTo(this.region, location.x, location.y, 1, this.consumesSpace),
+            ),
+            Boolean,
+          );
+        }
+      }
+
+      if (both) {
+        this.location.x = dx;
+        this.location.y = dy;
+      } else if (xSpace) {
+        this.location.x = dx;
+      } else if (ySpace) {
+        this.location.y = dy;
+      }
+      if (this.consumesSpace) {
+        this.region.setTileCollisionFlags(this.location.x, this.location.y, this.size);
+      }
+      if (this.location.x !== previousLocation.x || this.location.y !== previousLocation.y) {
+        const movedMoreThanOneTile = Math.max(
+          Math.abs(this.location.x - previousLocation.x),
+          Math.abs(this.location.y - previousLocation.y),
+        ) > 1;
+        this.visualPath.push({ ...this.location, run: this.canRun && movedMoreThanOneTile });
+        this.visualMovementActive = true;
+        moved = true;
+      }
+    }
+    if (!moved && this.visualPath.length === 0) {
+      // bit of a hack, but if we moved this tick, prevent the animation from switching to 'idle' when the queue is now empty (stops it from flicking to
+      // idle anim every tick).
+      this.visualMovementActive = false;
+    }
+  }
+
+  /** Whether this mob may visually cover two tiles during one game tick. */
+  get canRun() {
+    return false;
+  }
+
+  getXMovementTiles(xOff: number, yOff: number) {
+    const start = yOff === -1 ? -1 : 0;
+    const end = yOff === 1 ? this.size + 1 : this.size;
+    const xTiles = [];
+    if (xOff === -1) {
+      for (let i = start; i < end; i++) {
+        xTiles.push({
+          x: this.location.x - 1,
+          y: this.location.y - i,
+        });
+      }
+    } else if (xOff === 1) {
+      for (let i = start; i < end; i++) {
+        xTiles.push({
+          x: this.location.x + this.size,
+          y: this.location.y - i,
+        });
+      }
+    }
+    return xTiles;
+  }
+
+  getYMovementTiles(xOff: number, yOff: number) {
+    const start = xOff === -1 ? -1 : 0;
+    const end = xOff === 1 ? this.size + 1 : this.size;
+
+    const yTiles = [];
+    if (yOff === -1) {
+      // south
+      for (let i = start; i < end; i++) {
+        yTiles.push({
+          x: this.location.x + i,
+          y: this.location.y + 1,
+        });
+      }
+    } else if (yOff === 1) {
+      // north
+      for (let i = start; i < end; i++) {
+        yTiles.push({
+          x: this.location.x + i,
+          y: this.location.y - this.size,
+        });
+      }
+    }
+
+    return yTiles;
+  }
+  // todo: Rename this possibly? it returns the attack style if it's possible
+  canMeleeIfClose(): "slash" | "crush" | "stab" | "" {
+    return "";
+  }
+
+  override attackStep() {
+    super.attackStep();
+
+    if (this.age > 0) {
+      return;
+    }
+    if (this.dying === 0) {
+      return;
+    }
+
+    this.attackIfPossible();
+    this.detectDeath();
+  }
+
+  attackStyleForNewAttack() {
+    return "slash";
+  }
+
+  attackIfPossible() {
+    this.hadLOS = this.hasLOS;
+    this.setHasLOS();
+
+    if (!this.aggro || this.canAttack() === false) {
+      return;
+    }
+
+    this.attackStyle = this.attackStyleForNewAttack();
+
+    const weaponIsAreaAttack = this.weapons[this.attackStyle].isAreaAttack;
+    let isUnderAggro = false;
+    if (!weaponIsAreaAttack) {
+      isUnderAggro = Collision.collisionMath(
+        this.location.x,
+        this.location.y,
+        this.size,
+        this.aggro.location.x,
+        this.aggro.location.y,
+        1,
+      );
+    }
+    this.attackFeedback = AttackIndicators.NONE;
+
+    if (!isUnderAggro && this.hasLOS && this.attackDelay <= 0) {
+      this.attack() && this.didAttack();
+    }
+  }
+
+  magicMaxHit() {
+    return 0;
+  }
+
+  attack() {
+    if (this.aggro.dying >= 0) {
+      return false;
+    }
+    if (this.canMeleeIfClose() && Weapon.isMeleeAttackStyle(this.attackStyle) === false) {
+      if (this.isWithinMeleeRange() && Random.get() < 0.5) {
+        this.attackStyle = this.canMeleeIfClose();
+      }
+    }
+
+    if (
+      this.weapons[this.attackStyle].isBlockable(this, this.aggro, {
+        attackStyle: this.attackStyle,
+      })
+    ) {
+      this.attackFeedback = AttackIndicators.BLOCKED;
+    } else {
+      this.attackFeedback = AttackIndicators.HIT;
+    }
+    this.weapons[this.attackStyle].attack(this, this.aggro as Unit /* hack */, {
+      attackStyle: this.attackStyle,
+      magicBaseSpellDamage: this.magicMaxHit(),
+    });
+
+    return true;
+  }
+
+  visible() {
+    const hiddenWhileDying = Settings.hideDeadNpcs && this.dying >= 0;
+    return this.region.world.getReadyTimer <= 0 && !hiddenWhileDying && !this.deathAnimationFinished;
+  }
+
+  override get combatLevel() {
+    return 99;
+  }
+
+  override contextActions(region: Region, x: number, y: number) {
+    const actions = [
+      {
+        text: [
+          { text: "Attack ", fillStyle: "white" },
+          { text: this.mobName(), fillStyle: "yellow" },
+          {
+            text: ` (level ${this.combatLevel})`,
+            fillStyle: Trainer.player.combatLevelColor(this),
+          },
+        ],
+        action: () => {
+          Trainer.clickController.redClick();
+          InputController.controller.queueAction(
+            () => Trainer.clickController.playerAttackClick(this),
+            () => ({ kind: "attackMob", mob: ReplayLog.mobIndex(this) }),
+          );
+        },
+      },
+    ];
+
+    // hack hack hack
+
+    if (this.removableWithRightClick) {
+      actions.push({
+        text: [
+          { text: "Remove ", fillStyle: "white" },
+          { text: this.mobName(), fillStyle: "yellow" },
+          {
+            text: ` (level ${this.combatLevel})`,
+            fillStyle: Trainer.player.combatLevelColor(this),
+          },
+        ],
+        action: () => {
+          this.region.removeMob(this);
+        },
+      });
+    }
+
+    return actions;
+  }
+
+  drawOverTile(tickPercent: number, context: OffscreenCanvasRenderingContext2D, scale) {
+    // Override me
+  }
+
+  drawUnderTile(tickPercent: number, context: OffscreenCanvasRenderingContext2D, scale) {
+    context.fillStyle = "#00000000";
+    if (Settings.displayFeedback) {
+      if (this.dying > -1) {
+        context.fillStyle = "#964B0073";
+      } else if (this.attackFeedback === AttackIndicators.BLOCKED) {
+        context.fillStyle = "#00FF0073";
+      } else if (this.attackFeedback === AttackIndicators.HIT) {
+        context.fillStyle = "#FF000073";
+      } else if (this.attackFeedback === AttackIndicators.SCAN) {
+        context.fillStyle = "#FFFF0073";
+      } else if (this.hasLOS) {
+        context.fillStyle = "#FF730073";
+      } else {
+        context.fillStyle = this.color;
+      }
+    }
+    // Draw mob
+    context.fillRect(-(this.size * scale) / 2, -(this.size * scale) / 2, this.size * scale, this.size * scale);
+  }
+
+  override draw(
+    tickPercent: number,
+    context: OffscreenCanvasRenderingContext2D,
+    offset: Location,
+    scale: number,
+    drawUnderTile: boolean,
+  ) {
+    if (!this.visible()) return;
+    super.draw(tickPercent, context, offset, scale, drawUnderTile);
+    if (Settings.displayMobLoS) {
+      LineOfSight.drawLOS(
+        this.region,
+        this.location.x,
+        this.location.y,
+        this.size,
+        this.attackRange,
+        "#FF000055",
+        this.type === UnitTypes.MOB,
+      );
+    }
+
+    const perceivedX = offset.x;
+    const perceivedY = offset.y;
+    context.save();
+    context.translate(
+      perceivedX * scale + (this.size * scale) / 2,
+      (perceivedY - this.size + 1) * scale + (this.size * scale) / 2,
+    );
+
+    if (drawUnderTile) {
+      this.drawUnderTile(tickPercent, context, scale);
+    }
+    const currentImage = this.unitImage;
+
+    if (Settings.rotated === "south") {
+      context.rotate(Math.PI);
+    }
+    if (Settings.rotated === "south") {
+      context.scale(-1, 1);
+    }
+
+    context.save();
+    if (this.shouldShowAttackAnimation()) {
+      this.attackAnimation(tickPercent, context);
+    }
+
+    if (currentImage) {
+      context.drawImage(
+        currentImage,
+        -(this.size * scale) / 2,
+        -(this.size * scale) / 2,
+        this.size * scale,
+        this.size * scale,
+      );
+    }
+
+    context.restore();
+
+    if (Settings.rotated === "south") {
+      context.scale(-1, 1);
+    }
+
+    this.drawOverTile(tickPercent, context, scale);
+
+    if (this.aggro) {
+      const unit = this.aggro as Unit;
+
+      if (
+        LineOfSight.playerHasLineOfSightOfMob(
+          this.region,
+          this.aggro.location.x,
+          this.aggro.location.y,
+          this,
+          unit.attackRange,
+        )
+      ) {
+        context.strokeStyle = "#00FF0073";
+        context.lineWidth = 1;
+        context.strokeRect(-(this.size * scale) / 2, -(this.size * scale) / 2, this.size * scale, this.size * scale);
+      }
+    }
+
+    context.restore();
+
+    if (!this.tcc) {
+      return;
+    }
+    // if (this.mobName() !== EntityName.JAL_AK) {
+    //   return;
+    // }
+    // if (this.mobId !== 4) {
+    //   return;
+    // }
+    /*this.tcc.forEach((location: Location) => {
+      context.fillStyle = "#00FF0073";
+      context.fillRect(location.x * scale, location.y * scale, scale, scale);
+    });*/
+  }
+
+  override drawUILayer(
+    tickPercent: number,
+    projector: UILayerProjector,
+    context: OffscreenCanvasRenderingContext2D,
+    scale: number,
+  ) {
+    if (!this.visible() || !projector.visible) return;
+    if (Settings.chunkDebug) {
+      const priority = this.region.getNpcChunkPriority(this);
+      if (priority !== null) {
+        const debugPosition = projector.atHeight(projector.logicalHeight * 0.5);
+        context.save();
+        context.translate(debugPosition.x, debugPosition.y);
+        if (Settings.rotated === "south") context.rotate(Math.PI);
+        context.font = "20px OSRS";
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.lineWidth = 3;
+        context.strokeStyle = "black";
+        context.strokeText(String(priority), 0, 0);
+        context.fillStyle = "white";
+        context.fillText(String(priority), 0, 0);
+        context.restore();
+      }
+    }
+
+    const overheadPosition = projector.atHeight(projector.logicalHeight);
+    context.save();
+    context.translate(overheadPosition.x, overheadPosition.y);
+    if (Settings.rotated === "south") {
+      context.rotate(Math.PI);
+    }
+
+    this.drawHPBar(context, scale, 0);
+    this.drawOverheadText(context, scale);
+    this.drawOverheadPrayers(context, scale);
+    context.restore();
+
+    const hitsplatPosition = projector.atHeight(projector.logicalHeight * 0.5);
+    context.save();
+    context.translate(hitsplatPosition.x, hitsplatPosition.y);
+    if (Settings.rotated === "south") context.rotate(Math.PI);
+    this.drawHitsplats(context, scale);
+    context.restore();
+  }
+
+  override create3dModel(): Model {
+    return CanvasSpriteModel.forRenderable(this);
+  }
+
+  override get color() {
+    return "#FF0000";
+  }
+}

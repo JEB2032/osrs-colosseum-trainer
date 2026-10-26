@@ -1,0 +1,429 @@
+import { Player } from "../../src/sdk/Player";
+import { Viewport } from "../../src/sdk/Viewport";
+import { World } from "../../src/sdk/World";
+import { TestRegion } from "../../src/sdk/testing/TestRegion";
+import { PlayerAnimationIndices } from "../../src/sdk/rendering/GLTFAnimationConstants";
+import { Mob } from "../../src/sdk/Mob";
+import { Weapon } from "../../src/sdk/gear/Weapon";
+
+test("running keeps both straight-line tile steps in the visual queue", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.running = true;
+  player.destinationLocation = { x: 6, y: 2 };
+
+  player.moveTowardsDestination();
+
+  expect(player.location).toEqual({ x: 4, y: 2 });
+  expect(player.visualPath.map(({ x, y }) => ({ x, y }))).toEqual([{ x: 3, y: 2 }, { x: 4, y: 2 }]);
+});
+
+test("walking enqueues only the authoritative one-tile step", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.running = false;
+  player.destinationLocation = { x: 6, y: 2 };
+
+  player.moveTowardsDestination();
+
+  expect(player.location).toEqual({ x: 3, y: 2 });
+  expect(player.visualPath.map(({ x, y }) => ({ x, y }))).toEqual([{ x: 3, y: 2 }]);
+});
+
+test("uses movement poses supplied by the equipped weapon", () => {
+  class CustomPoseWeapon extends Weapon {
+    override get idleAnimationId() { return 101; }
+    override get walkAnimationId() { return 102; }
+    override get runAnimationId() { return 103; }
+  }
+
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.equipment.weapon = new CustomPoseWeapon();
+  player.equipmentChanged();
+  expect(player.currentPoseAnimation).toBe(101);
+
+  (player as any)._angle = 0;
+  (player as any).nextAngle = 0;
+  player.visualPath = [{ x: 3, y: 2, run: false }];
+  player.clientTick(0, 20);
+  expect(player.currentPoseAnimation).toBe(102);
+
+  player.visualPath = [{ x: 4, y: 2, run: true }];
+  player.clientTick(0, 40);
+  expect(player.currentPoseAnimation).toBe(103);
+});
+
+test("snaps visual movement across a path discontinuity larger than two tiles", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.visualPath = [{ x: 6, y: 2, run: false }];
+
+  player.clientTick(0, 20);
+
+  expect(player.perceivedLocation).toEqual({ x: 6, y: 2 });
+  expect(player.visualPath).toHaveLength(0);
+});
+
+test.each([
+  [Math.PI / 2, PlayerAnimationIndices.StrafeRight],
+  [-Math.PI / 2, PlayerAnimationIndices.StrafeLeft],
+  [Math.PI, PlayerAnimationIndices.WalkBack],
+])("selects the directional movement pose for heading delta %p", (heading, expectedPose) => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.visualPath = [{ x: 3, y: 2, run: false }];
+  // Travel east while already facing away from that travel heading. Pose
+  // selection must compare the path heading with current rotation, not with
+  // the actor's target-facing heading.
+  (player as any)._angle = -heading;
+  (player as any).nextAngle = -heading;
+
+  player.clientTick(0, 20);
+
+  expect(player.currentPoseAnimation).toBe(expectedPose);
+});
+
+test("returns to idle when the visual path is empty", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.running = false;
+  player.location = { x: 3, y: 2 };
+  player.destinationLocation = { x: 5, y: 2 };
+  player.visualPath = [{ x: 3, y: 2, run: false }];
+
+  for (let cycle = 1; cycle <= 32; cycle++) player.clientTick(0, cycle * 20);
+
+  expect(player.visualPath).toHaveLength(0);
+  expect(player.currentPoseAnimation).toBe(PlayerAnimationIndices.Idle);
+});
+
+test.each([
+  ["east", 0],
+  ["west", -Math.PI],
+])("uses the locomotion pose only while walking %s", (_direction, heading) => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.running = false;
+  player.destinationLocation = { x: heading === 0 ? 8 : -4, y: 2 };
+  player.visualPath = [
+    { x: heading === 0 ? 3 : 1, y: 2, run: false },
+    { x: heading === 0 ? 4 : 0, y: 2, run: false },
+    { x: heading === 0 ? 5 : -1, y: 2, run: false },
+  ];
+  // Begin already aligned with the travel direction so this test isolates
+  // locomotion continuity from the intentional turn-in-place sequence.
+  (player as any)._angle = heading;
+  (player as any).nextAngle = heading;
+
+  const poses: number[] = [];
+  for (let cycle = 1; cycle <= 110; cycle++) {
+    player.clientTick(0, cycle * 20);
+    poses.push(player.animationIndex);
+  }
+
+  expect(poses).toContain(PlayerAnimationIndices.Walk);
+  expect(poses[poses.length - 1]).toBe(PlayerAnimationIndices.Idle);
+});
+
+test("keeps walking displacement constant in a normal visual path buffer", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.destinationLocation = { x: 8, y: 2 };
+  player.visualPath = [
+    { x: 3, y: 2, run: false },
+    { x: 4, y: 2, run: false },
+  ];
+  (player as any)._angle = 0;
+  (player as any).nextAngle = 0;
+
+  const deltas: number[] = [];
+  let previous = player.perceivedLocation.x;
+  for (let cycle = 1; cycle <= 50; cycle++) {
+    player.clientTick(0, cycle * 20);
+    const current = player.perceivedLocation.x;
+    if (current !== previous && player.visualPath.length > 0) deltas.push(current - previous);
+    previous = current;
+  }
+
+  expect(deltas.length).toBeGreaterThan(20);
+  expect(Math.max(...deltas)).toBeCloseTo(Math.min(...deltas));
+});
+
+test("uses bounded catch-up speed when the visual queue grows", () => {
+  const region = new TestRegion(30, 30);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.destinationLocation = { x: 20, y: 2 };
+  player.visualPath = [
+    { x: 3, y: 2, run: false },
+    { x: 4, y: 2, run: false },
+    { x: 5, y: 2, run: false },
+    { x: 6, y: 2, run: false },
+  ];
+  (player as any)._angle = 0;
+  (player as any).nextAngle = 0;
+
+  const before = player.perceivedLocation.x;
+  player.clientTick(0, 20);
+  // A queue longer than three tiles uses the 2x catch-up rate.
+  expect(player.perceivedLocation.x - before).toBeCloseTo(2 / 30);
+});
+
+test("keeps diagonal running continuous across visual waypoints", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.running = true;
+  player.destinationLocation = { x: 8, y: 8 };
+  player.visualPath = [{ x: 3, y: 3, run: true }, { x: 4, y: 4, run: true }];
+  const heading = -Math.PI / 4;
+  (player as any)._angle = heading;
+  (player as any).nextAngle = heading;
+
+  const poses: number[] = [];
+  const distances: number[] = [];
+  let previous = { ...player.perceivedLocation };
+  for (let cycle = 1; cycle <= 20; cycle++) {
+    player.clientTick(0, cycle * 20);
+    poses.push(player.animationIndex);
+    distances.push(Math.hypot(player.perceivedLocation.x - previous.x, player.perceivedLocation.y - previous.y));
+    previous = { ...player.perceivedLocation };
+  }
+
+  expect(new Set(poses)).toEqual(new Set([PlayerAnimationIndices.Run]));
+  const movingDistances = distances.filter((distance) => distance > 0);
+  expect(Math.max(...movingDistances)).toBeCloseTo(Math.min(...movingDistances));
+});
+
+test("keeps the run pose stable while diagonally approaching an aggro target", () => {
+  const region = new TestRegion(30, 30);
+  const target = new Mob(region, { x: 9, y: 10 }, {});
+  const player = new Player(region, { x: 2, y: 2 }, { aggro: target });
+  player.running = true;
+  player.destinationLocation = { x: 9, y: 10 };
+
+  const poses: number[] = [];
+  for (let serverTick = 0; serverTick < 3; serverTick++) {
+    player.moveTowardsDestination();
+    for (let clientTick = 1; clientTick <= 20; clientTick++) {
+      player.clientTick(0, (serverTick * 20 + clientTick) * 20);
+      poses.push(player.animationIndex);
+    }
+  }
+
+
+  expect(poses.filter((pose) => pose === PlayerAnimationIndices.Run).length).toBeGreaterThan(poses.length / 2);
+  expect(poses).not.toContain(PlayerAnimationIndices.Idle);
+});
+
+test("keeps the running pose at the client forty-five-degree forward boundary", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.running = true;
+  player.visualPath = [{ x: 3, y: 3, run: true }];
+  // Exactly forty-five degrees remains a forward movement pose in the client.
+  (player as any)._angle = 0;
+  (player as any).nextAngle = -0.2;
+
+  const poses: number[] = [];
+  for (let cycle = 1; cycle <= 8; cycle++) {
+    player.clientTick(0, cycle * 20);
+    poses.push(player.animationIndex);
+  }
+  expect(new Set(poses)).toEqual(new Set([PlayerAnimationIndices.Run]));
+});
+
+test("does not apply the turn slowdown while moving toward an attack target", () => {
+  const region = new TestRegion(20, 20);
+  const target = new Mob(region, { x: 8, y: 8 }, {});
+  const untargeted = new Player(region, { x: 2, y: 2 });
+  const targeted = new Player(region, { x: 2, y: 2 });
+  targeted.setAggro(target);
+
+  for (const player of [untargeted, targeted]) {
+    player.visualPath = [{ x: 3, y: 2, run: false }];
+    (player as any)._angle = -Math.PI / 2;
+  }
+  // An untargeted actor turns toward its eastward path. A targeted actor
+  // remains facing north toward its target while travelling east.
+  (untargeted as any).nextAngle = 0;
+  (targeted as any).nextAngle = -Math.PI / 2;
+
+  untargeted.clientTick(0, 20);
+  targeted.clientTick(0, 20);
+
+  expect(untargeted.perceivedLocation.x - 2).toBeCloseTo(1 / 60);
+  expect(targeted.perceivedLocation.x - 2).toBeCloseTo(1 / 30);
+  expect(untargeted.currentPoseAnimation).toBe(PlayerAnimationIndices.StrafeRight);
+  expect(targeted.currentPoseAnimation).toBe(PlayerAnimationIndices.StrafeRight);
+});
+
+test("uses the client forty-five-degree threshold for strafing", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.visualPath = [{ x: 3, y: 2, run: false }];
+  (player as any)._angle = -Math.PI * 50 / 180;
+  (player as any).nextAngle = 0;
+
+  player.clientTick(0, 20);
+
+  expect(player.currentPoseAnimation).toBe(PlayerAnimationIndices.StrafeRight);
+});
+
+test("blends an attack begun on the same tick that movement is queued", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  const playAnimation = jest.spyOn(player, "playAnimation").mockResolvedValue();
+  player.visualPath = [{ x: 3, y: 2, run: false }];
+
+  player.playAttackAnimation(123);
+
+  expect(playAnimation).toHaveBeenCalledWith(123, true);
+  expect(player.shouldBlendAnimationWithPose).toBe(true);
+});
+
+test("an attack begun while stationary can start blending when the player runs", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 2 });
+  const playAnimation = jest.spyOn(player, "playAnimation").mockResolvedValue();
+
+  player.playAttackAnimation(123);
+
+  expect(playAnimation).toHaveBeenCalledWith(123, true);
+  expect(player.shouldBlendAnimationWithPose).toBe(false);
+
+  player.visualPath = [{ x: 3, y: 2, run: true }];
+
+  expect(player.shouldBlendAnimationWithPose).toBe(true);
+});
+
+test("turns mobs at the same gradual rate as players", () => {
+  const region = new TestRegion(20, 20);
+  const target = new Mob(region, { x: 0, y: 4 }, {});
+  const mob = new Mob(region, { x: 0, y: 0 }, { aggro: target });
+
+  mob.clientTick(0, 0);
+
+  expect((mob as any).unitRotation).toBeCloseTo(-64 / 512);
+});
+
+test("preserves diagonal target-facing when combat is cancelled in place", () => {
+  const region = new TestRegion(20, 20);
+  const target = new Mob(region, { x: 8, y: 10 }, {});
+  const player = new Player(region, { x: 5, y: 5 }, { aggro: target });
+  const expected = -Math.atan2(10 - 5, 8 - 5);
+
+  player.interruptCombat();
+
+  expect(player.aggro).toBeNull();
+  expect((player as any).restingAngle).toBeCloseTo(expected);
+  expect((player as any).nextAngle).toBeCloseTo(expected);
+});
+
+test("keeps diagonal running visually aligned with successive true tiles", () => {
+  const region = new TestRegion(30, 30);
+  const player = new Player(region, { x: 2, y: 2 });
+  player.running = true;
+  player.destinationLocation = { x: 14, y: 14 };
+  for (let serverTick = 0; serverTick < 4; serverTick++) {
+    player.moveTowardsDestination();
+    for (let clientTick = 1; clientTick <= 30; clientTick++) {
+      player.clientTick(0, (serverTick * 30 + clientTick) * 20);
+    }
+    // Turning may intentionally leave the visual actor slightly behind the
+    // true tile, but it must never run ahead or accumulate an unbounded lag.
+    expect(player.perceivedLocation.x).toBeLessThanOrEqual(player.location.x + 1e-9);
+    expect(player.perceivedLocation.y).toBeLessThanOrEqual(player.location.y + 1e-9);
+    expect(player.location.x - player.perceivedLocation.x).toBeLessThan(0.5);
+    expect(player.location.y - player.perceivedLocation.y).toBeLessThan(0.5);
+  }
+});
+
+test("removes the target marker as soon as the true location reaches its tile", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 3 });
+  player.pathTargetLocation = { x: 7, y: 5 };
+
+  (player as any).updatePathMarker();
+  expect(player.clickMarker).not.toBeNull();
+
+  player.location = { x: 7, y: 5 };
+  expect(player.perceivedLocation).not.toEqual(player.location);
+  (player as any).updatePathMarker();
+
+  expect(player.clickMarker).toBeNull();
+});
+
+test("can show a short-path target marker before server movement reaches it", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 2, y: 3 });
+  const target = { x: 4, y: 3 };
+
+  player.showTargetMarker(target);
+  expect(player.clickMarker?.location).toEqual(target);
+
+  player.running = true;
+  player.destinationLocation = target;
+  player.moveTowardsDestination();
+  (player as any).updatePathMarker();
+
+  expect(player.location).toEqual(target);
+  expect(player.clickMarker).toBeNull();
+});
+
+test.each([
+  [{ x: 6, y: 5 }, 0],
+  [{ x: 4, y: 5 }, -Math.PI],
+  [{ x: 5, y: 6 }, -Math.PI / 2],
+  [{ x: 5, y: 4 }, Math.PI / 2],
+])("retains the final travel heading at destination %p", (destination, expectedHeading) => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 5, y: 5 });
+  player.running = false;
+  player.destinationLocation = destination;
+  player.moveTowardsDestination();
+
+  for (let cycle = 1; cycle <= 80; cycle++) player.clientTick(0, cycle * 20);
+
+  expect((player as any).restingAngle).toBeCloseTo(expectedHeading);
+  expect((player as any)._angle).toBeCloseTo(expectedHeading);
+});
+
+test("uses the final path segment rather than a transient turn target for resting yaw", () => {
+  const region = new TestRegion(20, 20);
+  const player = new Player(region, { x: 5, y: 5 });
+  player.running = false;
+  player.location = { x: 4, y: 5 };
+  player.destinationLocation = { x: 4, y: 5 };
+  player.visualPath = [{ x: 4, y: 5, run: false }];
+  // Simulate nextAngle having been overwritten during a server/visual queue
+  // boundary. Zero is the old east-facing fallback.
+  (player as any).nextAngle = 0;
+
+  // Walking backward while untargeted uses the client's half-speed turn
+  // movement, then rotates to the final travel heading after arrival.
+  for (let cycle = 1; cycle <= 100; cycle++) player.clientTick(0, cycle * 20);
+
+  expect((player as any).restingAngle).toBeCloseTo(-Math.PI);
+  // +π and -π are the same heading; rotation may legitimately settle on
+  // either representation after shortest-path normalisation.
+  expect(Math.abs(Math.abs((player as any)._angle) - Math.PI)).toBeLessThan(0.02);
+});
+
+test("a coincident server and client boundary processes the server first", () => {
+  const world = new World();
+  const order: string[] = [];
+  world.isPaused = false;
+  world.then = 580;
+  world.tickTimer = 0;
+  world.nextTickTimer = 600;
+  world.clientTickTimer = 580;
+  world.tickWorld = jest.fn(() => { order.push("server"); });
+  world.tickClient = jest.fn(() => { order.push("client"); });
+  Viewport.viewport = { draw: jest.fn() } as never;
+  const requestFrame = jest.spyOn(window, "requestAnimationFrame").mockImplementation(() => 0);
+
+  world.browserLoop(601);
+
+  expect(order).toEqual(["server", "client"]);
+  requestFrame.mockRestore();
+});

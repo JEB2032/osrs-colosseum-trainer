@@ -1,0 +1,231 @@
+import { create } from "lodash";
+import { Location, Location3 } from "./Location";
+
+import { Model } from "./rendering/Model";
+import { CacheRenderSpotAnim } from "./rendering/CacheRenderReference";
+
+export interface AnimationMetadata {
+  precedenceAnimating?: number;
+  priority?: number;
+}
+
+export interface RenderableListener {
+  animationChanged(id: number, blend: boolean): Promise<void>;
+  modelChanged();
+  spotAnimChanged?(spotAnims: CacheRenderSpotAnim[]);
+  getAnimationMetadata?(id: number): AnimationMetadata | undefined;
+  getActiveAnimationMetadata?(): AnimationMetadata | undefined;
+}
+
+/** Projects heights above a renderable's origin into UI-canvas coordinates. */
+export interface UILayerProjector {
+  readonly logicalHeight: number;
+  /** False when the renderable intersects or sits behind the camera near plane. */
+  readonly visible: boolean;
+  atHeight(height: number): Location;
+}
+
+const NIL_OFFSET: Location3[] = [{ x: 0, y: 0, z: 0 }];
+
+export abstract class Renderable {
+  private _selected = false;
+  private cachedModel: Model | null = null;
+  private animationChangeListener: RenderableListener | null = null;
+
+  // in case the animation is set before animationChangeListener is set
+  private queuedAnimationId = -1;
+
+  abstract getPerceivedLocation(tickPercent: number): Location3;
+
+  /**
+   * return the angle of this renderable in radians, around the Z (up) axis.
+   * West is zero degrees, and increasing values represent clockwise rotation.
+   */
+  abstract getPerceivedRotation(tickPercent: number): number;
+
+  abstract getTrueLocation(): Location;
+
+  /**
+   * return the pitch angle of this renderable in radians, i.e. how up/down it is pointing
+   * 0 is flat, increasing is up, decreasing is down
+   */
+  getPerceivedPitch(tickPercent: number): number {
+    return 0;
+  }
+
+  /**
+   * allow offsetting the components of a multi-model renderable
+   */
+  getPerceivedOffsets(tickPercent: number): Location3[] {
+    return NIL_OFFSET;
+  }
+
+  abstract get size(): number;
+
+  get drawOutline(): boolean {
+    return true;
+  }
+
+  // If null, render normally in the scene. Otherwise sets the renderOrder which can
+  // draw it above over elements in the scene, and other lines with lower renderOrder.
+  get outlineRenderOrder(): number | null {
+    return null;
+  }
+
+  get drawTrueTile(): boolean {
+    return false;
+  }
+
+  /** Whether a currently playing action should compose with the pose now. */
+  get shouldBlendAnimationWithPose(): boolean {
+    return false;
+  }
+
+  // If null, use the default ground-overlay priority. Otherwise sets the renderOrder
+  // above other ground overlays with lower render orders.
+  get trueTileRenderOrder(): number | null {
+    return null;
+  }
+
+  get height(): number {
+    return this.size;
+  }
+
+  /**
+   * Height above the actor origin used to anchor overhead UI in 3d.
+   *
+   * This is separate from height because gameplay also uses height for model
+   * dimensions and projectile trajectories. Cache-backed actors can override
+   * it with the logical/model height used by the game client.
+   */
+  get logicalHeight(): number {
+    return this.height;
+  }
+
+  get clickboxHeight(): number | null {
+    return null;
+  }
+
+  get clickboxRadius(): number | null {
+    return null;
+  }
+
+  abstract get color(): string;
+
+  get colorHex() {
+    return parseInt(this.color.replace("#", ""), 16);
+  }
+
+  get selectable(): boolean {
+    return true;
+  }
+
+  visible(tickPercent): boolean {
+    return true;
+  }
+
+  /**
+   * Should remove from the scene
+   */
+  abstract shouldDestroy(): boolean;
+
+  get selected(): boolean {
+    return this._selected;
+  }
+
+  set selected(selected: boolean) {
+    this._selected = selected;
+  }
+  
+  drawUILayer(
+    tickPercent: number,
+    projector: UILayerProjector,
+    context: OffscreenCanvasRenderingContext2D,
+    scale: number,
+  ) {
+    // Override me
+  }
+
+  // draw in 2d mode
+  draw(
+    tickPercent: number,
+    context: OffscreenCanvasRenderingContext2D,
+    offset: Location = { x: 0, y: 0 },
+    scale = 20,
+    drawUnderTile = true,
+  ) {
+    // Override me
+  }
+
+  /**
+   * Return a new model for this renderable in 3d mode. it will be associated with the Renderable and destroyed when the renderable is
+   * destroyed.
+   */
+  protected create3dModel(): Model | null {
+    return null;
+  }
+
+  public get3dModel(): Model | null {
+    return this.cachedModel ?? this.create3dModel();
+  }
+
+  /**
+   * Return the index of the animation that should be playing at this moment.
+   * Note: if the value changes, the new animation will start upon the next tick.
+   */
+  abstract get animationIndex();
+
+  async playAnimation(index: number, blend = false) {
+    if (this.animationChangeListener) {
+      return this.animationChangeListener.animationChanged(index, blend);
+    } else {
+      this.queuedAnimationId = index;
+    }
+  }
+
+  /** Cache sequence behavior for an animation, when supplied by the active renderer. */
+  getAnimationMetadata(index: number): AnimationMetadata | undefined {
+    return this.animationChangeListener?.getAnimationMetadata?.(index);
+  }
+
+  /** Cache sequence behavior for the currently playing one-shot animation. */
+  protected getActiveAnimationMetadata(): AnimationMetadata | undefined {
+    return this.animationChangeListener?.getActiveAnimationMetadata?.();
+  }
+
+  setAnimationListener(listener: RenderableListener) {
+    this.animationChangeListener = listener;
+    if (this.queuedAnimationId >= 0) {
+      listener.animationChanged(this.queuedAnimationId, false);
+      this.queuedAnimationId = -1;
+    }
+  }
+
+  protected notifySpotAnimChanged(spotAnims: CacheRenderSpotAnim[]) {
+    this.animationChangeListener?.spotAnimChanged?.(spotAnims);
+  }
+
+  /** Spotanims currently attached to this renderable. */
+  get spotAnims(): CacheRenderSpotAnim[] {
+    return [];
+  }
+
+  clearAnimationListener() {
+    this.animationChangeListener = null;
+  }
+
+  invalidateModel() {
+    this.cachedModel = null;
+    if (this.animationChangeListener) {
+      this.animationChangeListener.modelChanged();
+    }
+  }
+
+  async preload() {
+    // Create an offscreen version of the model so that loading it is faster next time.
+    this.cachedModel = this.create3dModel();
+    if (this.cachedModel) {
+      await this.cachedModel.preload();
+    }
+  }
+}

@@ -1,0 +1,115 @@
+import { CacheRenderReference, cacheRenderItemKey } from "./CacheRenderReference";
+import { CACHE_RENDER_BUNDLE_SCHEMA_VERSION, crc32, isCacheRenderBundleManifest } from "../../cache-render-format";
+import type { CacheRenderAsset, CacheRenderBundleManifest, CacheRenderScene, CacheRenderScenePlacement } from "../../cache-render-format";
+
+export { CACHE_RENDER_BUNDLE_SCHEMA_VERSION } from "../../cache-render-format";
+export type { CacheRenderAsset, CacheRenderBundleManifest, CacheRenderScene, CacheRenderScenePlacement } from "../../cache-render-format";
+
+
+export class CacheRenderBundleError extends Error {
+  constructor(public readonly code: "manifest" | "integrity" | "missing-asset" | "network", message: string) {
+    super(message);
+  }
+}
+
+export function validateCacheRenderBundleManifest(value: any): CacheRenderBundleManifest {
+  if (!isCacheRenderBundleManifest(value)) throw new CacheRenderBundleError("manifest", "Invalid cache render bundle manifest or unsupported schema version");
+  return value;
+}
+
+  function referenceKey(reference: CacheRenderReference): string {
+  if (reference.kind === "npc") return `npc:${reference.definitionId}`;
+  if (reference.kind === "model") return `model:${reference.modelId}`;
+  if (reference.kind === "spotAnim") return "spotAnim";
+  if (reference.kind === "player") return `player:${reference.loadout.map(cacheRenderItemKey).join(",")}`;
+  return "asset";
+}
+
+export class CacheRenderBundle {
+  private constructor(public readonly baseUrl: string, public readonly manifest: CacheRenderBundleManifest) {}
+
+  static async load(manifestUrl: string): Promise<CacheRenderBundle> {
+    let response: Response;
+    try { response = await fetch(manifestUrl); } catch (error) {
+      throw new CacheRenderBundleError("network", `Unable to load cache render manifest: ${error.message}`);
+    }
+    if (!response.ok) throw new CacheRenderBundleError("network", `Unable to load cache render manifest (${response.status})`);
+    let manifest: CacheRenderBundleManifest;
+    try { manifest = validateCacheRenderBundleManifest(await response.json()); } catch (error) {
+      if (error instanceof CacheRenderBundleError) throw error;
+      throw new CacheRenderBundleError("manifest", "Cache render manifest is not JSON");
+    }
+    // `fetch` accepts relative URLs, but URL resolution for the payload files
+    // requires an absolute base. Resolve site-relative manifests against the
+    // page that requested them (while preserving absolute/CDN URLs).
+    const manifestAbsoluteUrl = new URL(manifestUrl, window.location.href);
+    return new CacheRenderBundle(new URL(".", manifestAbsoluteUrl).toString(), manifest);
+  }
+
+  assetIds(reference: CacheRenderReference): string[] {
+    if (reference.kind === "spotAnim") return [];
+    if (reference.kind === "asset") return [reference.assetId];
+    if (reference.kind === "player" && this.manifest.playerItems) {
+      const itemIds = reference.loadout.map((item) => this.manifest.playerItems[cacheRenderItemKey(item)] || this.manifest.playerItems[item]);
+      const missing = reference.loadout.filter((item, index) => !itemIds[index]);
+      if (!missing.length) return itemIds.filter((id, index) => itemIds.indexOf(id) === index);
+      throw new CacheRenderBundleError("missing-asset", `Bundle has no player item data for ${missing.join(", ")}`);
+    }
+    const ids = this.manifest.references[referenceKey(reference)];
+    if (ids) return ids;
+    throw new CacheRenderBundleError("missing-asset", `Bundle has no render data for ${referenceKey(reference)}`);
+  }
+
+  spotAnimIds(reference: CacheRenderReference): string[] {
+    const spotAnims = reference.kind === "model" || reference.kind === "asset" ? undefined : reference.spotAnims;
+    return (spotAnims ?? []).map((spotAnim) => this.manifest.spotAnims?.[String(spotAnim.id)]).filter((id): id is string => Boolean(id));
+  }
+
+  sharedAssetIds(reference: CacheRenderReference): string[] {
+    if (reference.kind !== "player") return [];
+    const id = this.manifest.sharedAssets?.playerAnimations;
+    return id ? [id] : [];
+  }
+
+  allSpotAnimIds(): string[] {
+    const ids: string[] = [];
+    Object.keys(this.manifest.spotAnims ?? {}).forEach((key) => { const id = this.manifest.spotAnims?.[key]; if (id && ids.indexOf(id) < 0) ids.push(id); });
+    return ids;
+  }
+
+  async fetchAsset(id: string): Promise<ArrayBuffer> {
+    const asset = this.manifest.assets[id];
+    if (!asset) throw new CacheRenderBundleError("missing-asset", `Bundle is missing asset ${id}`);
+    return this.fetchManifestAsset(asset, `cache render asset ${id}`);
+  }
+
+  async fetchSoundEffects(): Promise<ArrayBuffer> {
+    const asset = this.manifest.soundEffects;
+    if (!asset) throw new CacheRenderBundleError("missing-asset", "Bundle has no sound-effect pack");
+    return this.fetchManifestAsset(asset, "cache sound-effect pack");
+  }
+
+  private async fetchManifestAsset(asset: CacheRenderAsset, label: string): Promise<ArrayBuffer> {
+    let response: Response;
+    try { response = await fetch(new URL(asset.file, this.baseUrl).toString()); } catch (error) {
+      throw new CacheRenderBundleError("network", `Unable to load ${label}: ${error.message}`);
+    }
+    if (!response.ok) throw new CacheRenderBundleError("missing-asset", `Unable to load ${label} (${response.status})`);
+    const bytes = await response.arrayBuffer();
+    if (asset.bytes !== undefined && bytes.byteLength !== asset.bytes) throw new CacheRenderBundleError("integrity", `Invalid length for ${label}`);
+    if (crc32(new Uint8Array(bytes)) !== asset.crc32.toLowerCase()) throw new CacheRenderBundleError("integrity", `Integrity check failed for ${label}`);
+    return bytes;
+  }
+}
+
+/** Runtime configuration. Set `manifestUrl` to a locally extracted bundle to override the hosted default. */
+export class CacheRender {
+  private static manifestUrl: string | null = null;
+  private static bundlePromise: Promise<CacheRenderBundle> | null = null;
+  static configure(manifestUrl: string | null) { this.manifestUrl = manifestUrl; this.bundlePromise = null; }
+  static isConfigured() { return this.manifestUrl !== null; }
+  static bundle(): Promise<CacheRenderBundle> {
+    if (!this.manifestUrl) return Promise.reject(new CacheRenderBundleError("network", "No cache render bundle is configured"));
+    return this.bundlePromise ?? (this.bundlePromise = CacheRenderBundle.load(this.manifestUrl));
+  }
+}

@@ -1,0 +1,225 @@
+# Cache rendering mechanics
+
+This documents durable cache and renderer behavior that content authors need to
+preserve. It intentionally omits discarded implementation experiments.
+
+## Cache model payloads
+
+- Extraction is Node-only. The browser receives decoded, versioned binary
+  payloads; it never reads the raw OSRS cache.
+- Player equipment is composed in SDK equipment-slot order. That order matters:
+  animation vertex groups and source-vertex mappings are concatenated in the
+  same order as the geometry.
+- `sourceVertices` must remain local to each composed model component. Falling
+  back to bind-pose coordinates globally can merge coincident vertices from
+  different items and corrupt animation transforms.
+- Standard sequences use frame-map transforms and are applied on the composed
+  geometry. Animaya sequences use extracted skeleton matrices and per-vertex
+  bone groups.
+
+## Authored click geometry
+
+- Cache face alpha `254` is effectively invisible. `rs-map-viewer` converts it
+  to alpha `1 / 255` and skips the face; the SDK renderer likewise discards it.
+- Invisible faces are still ordinary model vertices, so Animaya deformation
+  will move them unless they are extracted from the visual payload.
+- Sol Heredit has an isolated, axis-aligned 12-face alpha-254 box. Its
+  `CACHE_ASSETS.npcs.solHeredit.clickboxFilter` marks that geometry as
+  `geometryClickbox`: it is removed from the visual mesh and rendered as a
+  separate root-level picking proxy, which follows actor placement/yaw but not
+  body-bone animation.
+- Do not infer click geometry from alpha alone for other models. There is no
+  documented cache-wide clickbox marker; preserve transparent faces unless a
+  model's data establishes the same intentional convention.
+
+## Animation and timing
+
+- Cache sequence frame lengths are in 20 ms units; renderer clocks are seconds,
+  so lengths are divided by 50.
+- Actor pose animations loop. Attack and other explicitly attached spotanims
+  are one-shot effects and must not wrap with modulo arithmetic.
+- Spotanim-only renderables start their own animation clock when their payload
+  is ready. Starting the clock while assets are loading can consume a short
+  effect before its mesh is visible.
+- CPU frame transforms are currently required for frame-map and Animaya data.
+  Synchronized repeated actors/effects can share one transformed geometry and
+  use per-instance matrices.
+- Cache actor and attached-effect clocks advance on fixed 20 ms client cycles
+  through `Model.clientTick`, forwarded by `Actor` and `Viewport3d`. Sound
+  triggers and completion use this clock, independently of drawing.
+- `World.clientTickPercent` supplies fractional progress through the client
+  cycle, separately from server-tick movement progress. Draws evaluate geometry
+  at the last animation time plus this fraction, with one deformation pass.
+  Repeated draws at the same fraction reuse geometry; pausing freezes the
+  clock and fraction. Catch-up ticks update state without deforming each
+  skipped pose.
+- Legacy smoothing interpolates floating-point transform parameters before
+  applying them once, matching the fractional-time path observed in the
+  supplied RuneLite 1.13.1 injected client. Rotations follow the shortest arc,
+  alpha transforms hold their current value, looping poses blend into their
+  first frame, and one-shots hold the final pose. The payload does not yet
+  expose RuneLite's per-sequence loop-back counts or exclusion list. Combined
+  action/pose sequences retain the native two-pass transform selection without
+  interpolation.
+- Animaya interpolates extracted bone-matrix samples before one skinning pass.
+  This approximates fractional animation; it does not reproduce RuneLite's
+  original curve evaluation. Exact curve parity requires additional extraction
+  data. Matrix interpolation can slightly shorten rotating limbs between
+  samples. Actor assets with baked-position fallback interpolate their vertices.
+- Coordinate scratch arrays, matrix buffers, and output buffers are reused.
+  Cache `MeshBasicMaterial` uses baked colours, so posed normals are unnecessary.
+  Disabling smoothing holds the pose between client ticks.
+- A newly loaded/replaced model starts at frame zero on its first client cycle.
+  Sequence completion and attached-effect delays do not depend on display FPS.
+- `node scripts/debug/benchmark-animations.cjs` compares working-tree actor
+  animation updates against the committed implementation on local idle NPC
+  payloads. Set `ANIMATION_BASELINE_REF` to compare against an older revision
+  after committing. Results report state cost per client cycle and animation
+  cost per draw at 120 FPS, including fractional presentation. Audio, attached
+  effects, scene placement, clickboxes, and GPU work are excluded.
+
+## Spotanims
+
+- A spotanim definition supplies a model, sequence, scale, and cache rotation.
+  Gameplay supplies actor-specific height, delay, offset, and optional colour
+  replacement.
+- `GraphicsObject` is the reusable SDK entity for a standalone world instance
+  of one definition. It owns an independent animation clock and removes itself
+  when its one-shot sequence ends.
+- Spotanims attached with `Unit.addSpotAnim(...)` instead inherit the actor's
+  position and facing, matching the client's `ActorSpotAnim`.
+- Spotanims may be rendered without base geometry via
+  `CacheRenderReferences.spotAnim(...)`.
+- Spotanim face alpha is distinct from vertex colour. Preserve alpha groups and
+  apply them as material alpha/discard data; dropping or misaligning them makes
+  transparent cache faces opaque.
+
+## Coordinate conventions
+
+- SDK world coordinates use X east and Y south. Three.js uses X east and Z
+  south, with Y vertical.
+- Render roots are positioned at `(location.x + size / 2, -0.49,
+  location.y - size / 2)` and use the actor yaw convention established by
+  `Renderable`.
+- Cache model vertices are converted from cache units by `/ 128`; cache Y is
+  negated into renderer vertical coordinates and cache Z is negated into the
+  renderer's north/south axis.
+
+## Scene contours and apparent rotation errors
+
+- `osrscachereader`'s `MapDefinition.getHeights()` returns positive upward
+  elevations. Its raw model vertices still use Y downward. `rs-map-viewer`
+  uses negative terrain heights, consistent with raw model Y. These two
+  readers' heightmaps cannot be substituted in a contour formula unchanged.
+- `scene-contour.mts` negates reader elevations **before** integer bilinear
+  interpolation, then applies `originalY + sampledNegativeHeight +
+  positivePlacementHeight`. Negating after interpolation can change rounding.
+- Colosseum grandstand models `51308`, `51304`, and `51309` appeared to face
+  backwards because the old formula bent them against the terrain slope.
+  Their horizontal rotations were correct. Compare all XYZ coordinates after
+  contouring, not just raw model vertices, quarter-turn formulas, or X/Z.
+- Six actual placements, including all four orientations of object `52521`,
+  are covered by independently generated `rs-map-viewer` expectations in
+  `packages/osrs-sdk-assets/test/fixtures/grandstand-contours.json`.
+  See [the investigation record](CACHE_SCENE_ROTATION_TODO.md) for evidence,
+  coordinates, and debugging pitfalls.
+- When changing extractor source, run `npm run build:assets-tool` **before**
+  `npm run assets -- 2437`: the latter executes the built `dist/cli.js`.
+  Verify the browser's manifest version against the generated bundle before
+  judging a screenshot. Reader checkout edits, unlike extractor edits, are
+  loaded directly on the next extraction.
+
+## Picking
+
+- Cache NPC picking follows the deob's two branches. One-tile NPCs accept a
+  mouse-ray hit on their model box. Larger NPCs first require a box hit, then
+  scan the rectangles of their projected faces with inclusive 5px padding,
+  stopping on the first match. The face interior is not tested, and a convex
+  hull is not built. Custom renderers without triangle data retain hull picking.
+- Bounds are taken after rotating the actual posed vertices, include the model
+  origin, and have minimum horizontal half-extents of 32 client units, with
+  another 8 units for one-tile NPCs. This avoids inflating slender models by
+  rotating a previously computed local box. Bounds are shared with UI checks.
+- Picking truncates projected pixel offsets toward zero before adding the
+  integer viewport centre. The browser's camera projection and smooth animated
+  positions remain SDK values; this is the client's picking algorithm, not a
+  bit-exact reproduction of its fixed-point software renderer.
+- Only boxes under the current pointer need finer processing. The debug overlay
+  shows cheap screen bounds in amber, and tested one-tile boxes or already-
+  projected padded face rectangles in cyan. Enabling it never projects the full
+  geometry. Each draw invalidates stale projections and refines only pointer
+  candidates, so stationary-pointer picking uses the current pose.
+- Cache models deduplicate source-vertex indices when loading the payload and
+  reuse world-space vertex objects. Visible triangle indices are mapped to those
+  deduplicated vertices once at load time. Client-hidden type-2 degenerate faces
+  are skipped; extracted authored clickbox geometry remains part of picking.
+- A box wholly in front of or behind the near plane also resolves UI visibility
+  without transforming every vertex. When the box crosses that plane, check the
+  actual vertices; a conservative box alone must not hide a valid model.
+- Fine picking skips individual triangles with near-clipped vertices rather
+  than rejecting all other faces of a partially clipped large model.
+- The local deob client (`Model.draw`, `calculateBoundingBox`, and `draw0`) uses
+  mouse/bounds rejection before finer picking and reuses vertex projections from
+  software rendering. It does not sort every actor's vertices into a hull.
+- `CacheRenderModel` owns a `ClickboxController` in
+  `src/sdk/rendering/utils/clickbox.ts`. The controller builds the picking
+  topology when geometry loads and owns the reusable world vertices, bounds,
+  and dirty flags. The model delegates its clickbox accessors and invalidates
+  the controller each draw for pose/transform updates. Viewport projection and
+  debug drawing remain in `Viewport3d`.
+- `node scripts/debug/benchmark-clickboxes.cjs` compares the previous eager hull
+  path, bounds-first hull picking, and bounds-first rectangle scans using local
+  NPC geometry in the larger-model branch. It measures CPU picking/UI cost,
+  including a posed-bounds refresh, rather than total renderer FPS.
+
+## Terrain colour
+
+- Terrain extraction includes authored tiles on planes 0 and 1 in the same
+  compiled terrain mesh. Both planes use the plane-0 region origin, so upper
+  floors align with objects sampled from the same heightmap. Tiles without
+  either an underlay or overlay remain void; implicit plane heights do not
+  create floors.
+- Tile corner heights are sampled at `(x, y)`, `(x + 1, y)`,
+  `(x + 1, y + 1)`, and `(x, y + 1)` before the north/south coordinate
+  reflection. Shape 0 is underlay-only; overlay paths select shapes 1–12.
+  Apply cache rotation before reflecting the completed vertices. Reversing
+  the rotation as well would reflect it twice.
+- `packages/osrs-sdk-assets/test/terrain-planes.test.mjs` exercises extraction
+  and scene compilation together, using independent `rs-map-viewer`
+  expectations for sloped upper floors, shape rotations, and cutouts.
+- A map tile references an underlay and, optionally, an overlay. Cache map
+  references are one-based; the corresponding floor-definition IDs are
+  zero-based. An underlay definition originates as an unsigned RGB medium and
+  is decoded to hue, saturation, lightness, and hue multiplier.
+- Underlay colour is blended before the tile is meshed. The RuneScape
+  incremental algorithm with blend radius `5` has an effective 10×10 window:
+  cache offsets `-4..+5` in each direction. It sums hue blends and hue
+  multipliers, averages saturation and lightness, then packs the result into
+  OSRS HSL. Do not replace this with a symmetric 11×11 sample loop.
+- Overlays do not participate in underlay blending. They use their own packed
+  HSL or texture on the overlay triangles selected by the tile path and
+  rotation. RGB `0xFF00FF` is the transparent terrain sentinel and omits those
+  faces.
+- Terrain lighting is applied to the packed HSL at each corner: derive the
+  corner brightness from height normal and tile-light occlusion, multiply the
+  packed lightness, and clamp it to `2..126`. Edge vertices average/mix packed
+  HSL values; do not interpolate converted RGB values instead.
+- The Kotlin GLB exporter converts final packed HSL with `ColorPalette(1.0)`.
+  rs-map-viewer’s 3D shader has the equivalent conversion at brightness `1`.
+  Fog, tone mapping, and material lighting are later renderer stages and are
+  not part of tile-colour generation.
+- `scripts/debug/dump-region-colours.mts` writes a generated per-tile
+  diagnostic with cache/trainer coordinates, blend inputs, packed/unpacked
+  HSL, and reference RGB. Use it when checking cache-colour parity; do not
+  treat it as a runtime asset format.
+
+## Performance
+
+- Decoded payloads are promise-cached by bundle version and asset ID.
+- Repeated synchronized cache models should use `CacheRenderInstancedModel`:
+  one geometry/material and one CPU animation update per pool, with per-instance
+  placement matrices. Pool keys must include any differing animation phase,
+  delay, scale, or recolour state.
+- Spotanim pools should load only the requested spotanim assets. Eagerly
+  constructing every spotanim for every short-lived effect causes severe frame
+  drops during attacks that spawn many graphics.
