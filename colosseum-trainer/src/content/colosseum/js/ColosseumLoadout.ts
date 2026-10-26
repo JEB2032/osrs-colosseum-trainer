@@ -96,42 +96,42 @@ export const wavesLoadout: Loadout = {
   ],
 };
 
-/** The setup used in the real fight (from the player's screenshot). */
+/** The setup used in the real fight (from the player's screenshots): starts in the Crystal/spear setup. */
 export const realFightLoadout: Loadout = {
-  name: "My setup (Blue Moon / tentacle)",
+  name: "My setup (Crystal / Blue Moon spear)",
   equipment: {
-    weapon: CACHE_ASSETS.items.abyssalTentacle.id,
-    offhand: CACHE_ASSETS.items.dragonDefender.id,
-    helmet: CACHE_ASSETS.items.blueMoonHelm.id,
+    weapon: CACHE_ASSETS.items.blueMoonSpear.id,
+    offhand: null,
+    helmet: CACHE_ASSETS.items.crystalHelm.id,
     necklace: CACHE_ASSETS.items.amuletOfBloodFury.id,
-    cape: CACHE_ASSETS.items.infernalCape.id,
+    cape: CACHE_ASSETS.items.fireCape.id,
     ammo: CACHE_ASSETS.items.radasBlessing4.id,
-    chest: CACHE_ASSETS.items.blueMoonChestplate.id,
-    legs: CACHE_ASSETS.items.blueMoonTassets.id,
-    feet: CACHE_ASSETS.items.eternalBoots.id,
+    chest: CACHE_ASSETS.items.crystalBody.id,
+    legs: CACHE_ASSETS.items.crystalLegs.id,
+    feet: CACHE_ASSETS.items.araneaBoots.id,
     gloves: CACHE_ASSETS.items.barrowsGloves.id,
     ring: CACHE_ASSETS.items.berserkerRingI.id,
   },
   inventory: [
-    CACHE_ASSETS.items.crystalBody.id,
+    CACHE_ASSETS.items.blueMoonChestplate.id,
     CACHE_ASSETS.items.bowOfFaerdhinen.id,
-    CACHE_ASSETS.items.blueMoonSpear.id,
+    CACHE_ASSETS.items.abyssalTentacle.id,
     CACHE_ASSETS.items.saradominBrew.id,
 
-    CACHE_ASSETS.items.crystalHelm.id,
-    CACHE_ASSETS.items.crystalLegs.id,
-    CACHE_ASSETS.items.saradominBrew.id,
-    CACHE_ASSETS.items.saradominBrew.id,
-
-    CACHE_ASSETS.items.saradominBrew.id,
-    CACHE_ASSETS.items.saradominBrew.id,
-    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.blueMoonHelm.id,
+    CACHE_ASSETS.items.blueMoonTassets.id,
+    CACHE_ASSETS.items.dragonDefender.id,
     CACHE_ASSETS.items.saradominBrew.id,
 
     CACHE_ASSETS.items.saradominBrew.id,
     CACHE_ASSETS.items.saradominBrew.id,
     CACHE_ASSETS.items.saradominBrew.id,
-    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.saradominBrew.id,
 
     CACHE_ASSETS.items.superRestore.id,
     CACHE_ASSETS.items.superRestore.id,
@@ -141,7 +141,7 @@ export const realFightLoadout: Loadout = {
     CACHE_ASSETS.items.superRestore.id,
     CACHE_ASSETS.items.superRestore.id,
     CACHE_ASSETS.items.superRestore.id,
-    null, // rune pouch
+    CACHE_ASSETS.items.superRestore.id,
 
     CACHE_ASSETS.items.rangingPotion.id,
     CACHE_ASSETS.items.superCombatPotion.id,

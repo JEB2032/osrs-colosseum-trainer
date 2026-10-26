@@ -74,3 +74,4 @@ export { BlueMoonTassets } from "./BlueMoonTassets";
 export { EternalBoots } from "./EternalBoots";
 export { AmuletOfBloodFury } from "./AmuletOfBloodFury";
 export { RadasBlessing4 } from "./RadasBlessing4";
+export { FireCape } from "./FireCape";

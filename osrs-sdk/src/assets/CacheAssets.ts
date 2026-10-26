@@ -45,6 +45,7 @@ export const CACHE_ASSETS = {
     zombieAxeCrush: { id: 3852 },
   },
   items: {
+    fireCape: { id: 6570 },
     blueMoonHelm: { id: 29019 },
     blueMoonChestplate: { id: 29013 },
     blueMoonTassets: { id: 29016 },

@@ -22,9 +22,12 @@ All game assets are property of Jagex. Not affiliated with Jagex.
   in-game Settings tab.
 - **Javelin toss** (every 5th Javelin Colossus attack lands on your tile 6 ticks later, up to 40
   typeless) and **Minotaur heal** (heals NPCs under 75% within 7 tiles/LoS while you're out of melee).
-- **Real-fight loadout** (default on the waves page): Blue Moon helm/chest/tassets, tentacle, dragon
-  defender, blood fury, Rada's blessing 4, infernal cape, barrows gloves, eternal boots, berserker
-  ring (i); Crystal helm/body/legs, bowfa and Blue Moon spear switches; brews, restores, ranging, super combat, prayer regen.
+- **Real-fight loadout** (default on the waves page): starts in Crystal helm/body/legs with the Blue
+  Moon spear (Blood Barrage autocast), fire cape, blood fury, Rada's blessing 4, barrows gloves,
+  Aranea boots, berserker ring (i); Blue Moon set, bowfa, tentacle + dragon defender switches;
+  10 brews, 8 restores, ranging, super combat, 2 prayer regen.
+- **Reinforcements**: random which one comes out first; the leader takes the gate slot nearer the
+  player and the other follows 2 ticks later (assumed delay).
 - **NPC tile highlights** (NPC Indicators style): berserker light blue, archer red, seer green,
   shaman blue, jaguar red, javelin green, manticore green, shockwave blue, minotaur red.
 - **Visual metronome** infobox counting 1–5 (1 = the tick the NPCs spawned), and RuneLite-style

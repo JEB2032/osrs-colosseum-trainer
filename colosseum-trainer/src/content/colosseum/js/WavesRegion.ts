@@ -176,6 +176,7 @@ const VENOM_MAX_DAMAGE = 20;
 const SOUTH_SPAWN_1 = { x: 26, y: 33 } as const;
 const SOUTH_SPAWN_2 = { x: 23, y: 29 } as const;
 const REINFORCEMENT_DELAY_TICKS = 67;
+const REINFORCEMENT_FOLLOW_TICKS = 2;
 const FREMENNIK_ARCHER_SPAWN_TOP_LEFT = { x: 22, y: 21 } as const;
 const FREMENNIK_ARCHER_SPAWN_SIZE = 7;
 const REINFORCEMENT_START_X = 25;
@@ -657,14 +658,22 @@ export class WavesRegion extends ColosseumRegion {
     else if (this.selectedWave <= 9) reinforcements = [pool.minotaur];
     else reinforcements = [pool.minotaur, pool.shaman];
 
+    // Which reinforcement comes out first is random in game (the shaman sometimes leads). The
+    // leader takes the gate slot nearer the player and moves at once; the rest follow
+    // REINFORCEMENT_FOLLOW_TICKS later, so a 1x1 shaman can lead a 3x3 minotaur.
     reinforcements = shuffle(reinforcements);
+    const leader = reinforcements[0];
     const player = this.players[0];
     const y = player.location.y <= 27 ? NORTH_REINFORCEMENT_Y : SOUTH_REINFORCEMENT_Y;
+    const totalWidth = reinforcements.reduce((width, mob) => width + mob.size, 0);
+    const playerIsWest = player.location.x < REINFORCEMENT_START_X + totalWidth / 2;
+    const leftToRight = playerIsWest ? reinforcements : [...reinforcements.slice(1), leader];
     let x = REINFORCEMENT_START_X;
-    reinforcements.forEach((mob) => {
+    leftToRight.forEach((mob) => {
       mob.setLocation({ x, y });
       x += mob.size;
     });
+    reinforcements.slice(1).forEach((mob) => mob.freeze(REINFORCEMENT_FOLLOW_TICKS));
 
     // Preserve the randomized left-to-right allocation while restoring the
     // Colosseum's canonical NPC processing order for insertion.
