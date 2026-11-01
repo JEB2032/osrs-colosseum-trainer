@@ -25,6 +25,14 @@ export type ColosseumSettingsState = {
   showMetronome: boolean;
   /** NPC Indicators-style coloured tiles under each NPC. */
   showNpcTiles: boolean;
+  /** Coach overlay: what to click and pray in real time. */
+  coach: boolean;
+  /** Training wheels: the trainer switches protection prayers for you. */
+  autoPray: boolean;
+  /** Training wheels: the trainer does the A/B opening movement for you. */
+  autoMove: boolean;
+  /** Live game speed for practice (1 = real time). */
+  practiceSpeed: number;
 };
 
 const STORAGE_KEY = "colosseum-trainer:settings";
@@ -43,6 +51,10 @@ const defaults: ColosseumSettingsState = {
   showManticoreTimer: false,
   showMetronome: true,
   showNpcTiles: true,
+  coach: true,
+  autoPray: false,
+  autoMove: false,
+  practiceSpeed: 1,
 };
 
 const jsonStorage = createJsonSettingsStorage<ColosseumSettingsState>(STORAGE_KEY, 1);
@@ -81,6 +93,10 @@ const storage: SettingsStorage<ColosseumSettingsState> = {
       showManticoreTimer: false,
       showMetronome: true,
       showNpcTiles: true,
+      coach: true,
+      autoPray: false,
+      autoMove: false,
+      practiceSpeed: 1,
     };
     jsonStorage.save(migrated);
     return migrated;

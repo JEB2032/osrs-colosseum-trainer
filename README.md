@@ -33,6 +33,11 @@ All game assets are property of Jagex. Not affiliated with Jagex.
 - **Visual metronome** infobox counting 1–5 (1 = the tick the NPCs spawned), and RuneLite-style
   hovered tile (yellow) and true tile (cyan) indicators.
 
+- **Coach mode** (sidebar): real-time instructions — when to click B, whether to go to A / stop
+  early for a double manticore, which protection prayer the next tick needs, a 6-tick incoming
+  attack strip, and javelin-dodge warnings. Training wheels: auto-move the A/B opening and
+  auto-pray (both recorded in replays). Practice game speed 1× / 0.75× / 0.5× / 0.25×.
+
 ## Layout
 
 | Folder | Upstream | Notes |

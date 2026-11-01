@@ -33,6 +33,7 @@ import {
   UNSUPPORTED_INVOCATIONS,
 } from "./content/colosseum/js/Invocations";
 import { REPLAY_WINDOW_TICKS } from "./content/colosseum/js/ReplayController";
+import { LOOKAHEAD_TICKS, type CombatStyle } from "./content/colosseum/js/Coach";
 
 declare const __OSRS_CACHE_RENDER_MANIFEST_URL__: string;
 
@@ -149,6 +150,7 @@ type AttackSetting = Exclude<
   | "solarFlareLevel"
   | "invocations"
   | "showManticoreTimer"
+  | "practiceSpeed"
 >;
 
 function AttackCheckbox({ label, setting }: { label: string; setting: AttackSetting }) {
@@ -184,6 +186,54 @@ function WavesSidebar({ region }: { region: WavesRegion }) {
   const sdkSettings = useSyncExternalStore(Settings.subscribe, Settings.getSnapshot, Settings.getSnapshot);
   return (
     <>
+      <p style={{ color: "#ffcf3f", margin: "4px 0" }}>Coaching</p>
+      <label>
+        <input
+          type="checkbox"
+          checked={settings.coach}
+          onChange={(event) => colosseumSettings.set({ coach: event.currentTarget.checked })}
+        />
+        Coach (what to click / pray)
+      </label>
+      <br />
+      <label title="Applies from the next restart">
+        <input
+          type="checkbox"
+          checked={settings.autoMove}
+          onChange={(event) => colosseumSettings.set({ autoMove: event.currentTarget.checked })}
+        />
+        Auto-move A/B opening
+      </label>
+      <br />
+      <label title="Applies from the next restart">
+        <input
+          type="checkbox"
+          checked={settings.autoPray}
+          onChange={(event) => colosseumSettings.set({ autoPray: event.currentTarget.checked })}
+        />
+        Auto-pray (training wheels)
+      </label>
+      <br />
+      <label>
+        Game speed{" "}
+        <select
+          aria-label="Game speed"
+          value={settings.practiceSpeed}
+          onChange={(event) => {
+            const speed = Number(event.currentTarget.value);
+            colosseumSettings.set({ practiceSpeed: speed });
+            region.replay.setLiveSpeed(speed);
+          }}
+          style={{ width: "auto", padding: "2px 4px" }}
+        >
+          <option value={1}>1x (real)</option>
+          <option value={0.75}>0.75x</option>
+          <option value={0.5}>0.5x</option>
+          <option value={0.25}>0.25x</option>
+        </select>
+      </label>
+      <p style={{ fontSize: 11, margin: "2px 0 0" }}>Auto-move / auto-pray apply from the next restart (Ctrl+R).</p>
+      <hr />
       <RuneScapeButton type="button" onClick={() => restartRun(region)}>Restart (Ctrl+R)</RuneScapeButton>
       <RuneScapeButton type="button" onClick={() => region.replay.startReplay()}>Replay last 30s</RuneScapeButton>
       <hr />
@@ -408,6 +458,72 @@ function WaveTimer({ region }: { region: WavesRegion }) {
   );
 }
 
+const STYLE_COLOURS: Record<CombatStyle, string> = { magic: "#3fa9ff", range: "#3fd65a", melee: "#ff4a3d" };
+const STYLE_LETTERS: Record<CombatStyle, string> = { magic: "Ma", range: "Ra", melee: "Me" };
+
+function CoachOverlay({ region }: { region: WavesRegion }) {
+  const settings = useSettingsStore(colosseumSettings);
+  const coach = useSyncExternalStore(region.subscribeWaveState, region.getCoach, region.getCoach);
+  const replaying = region.replay.isReplaying();
+  if (!settings.coach || !coach.instruction) return null;
+  const urgent = /NOW|MOVE|PRAY/.test(coach.instruction);
+  const prayColour = coach.pray ? STYLE_COLOURS[coach.pray] : "#ffffff";
+  return (
+    <div style={{
+      left: 8,
+      pointerEvents: "none",
+      position: "absolute",
+      top: replaying ? 70 : 40,
+      zIndex: 3,
+      fontFamily: "OSRS",
+      textShadow: "1px 1px 0 black",
+    }}>
+      <div style={{
+        background: "rgba(20, 16, 10, 0.78)",
+        border: `2px solid ${urgent ? prayColour : "#5a5040"}`,
+        borderRadius: 4,
+        color: "white",
+        maxWidth: 330,
+        padding: "6px 10px",
+      }}>
+        <div style={{ color: coach.pray ? prayColour : urgent ? "#ffff00" : "#ffcf3f", fontSize: 26, lineHeight: "26px" }}>
+          {coach.instruction}
+        </div>
+        {coach.detail && <div style={{ fontSize: 15, marginTop: 2 }}>{coach.detail}</div>}
+        {coach.nextTicks.length > 0 && (
+          <div style={{ display: "flex", gap: 3, marginTop: 6 }}>
+            {Array.from({ length: LOOKAHEAD_TICKS }, (_, index) => {
+              const attacks = coach.nextTicks[index] ?? [];
+              const styles = (["magic", "range", "melee"] as CombatStyle[])
+                .filter((style) => attacks.some((attack) => attack.style === style));
+              return (
+                <div
+                  key={index}
+                  title={attacks.map((attack) => `${attack.source}: ${attack.style}`).join(", ")}
+                  style={{
+                    background: index === 0 ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.35)",
+                    border: "1px solid #6b5f4b",
+                    minWidth: 40,
+                    padding: "1px 2px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ color: "#bbb", fontSize: 12 }}>+{index + 1}</div>
+                  <div style={{ fontSize: 15, minHeight: 18 }}>
+                    {styles.length === 0 ? "·" : styles.map((style) => (
+                      <span key={style} style={{ color: STYLE_COLOURS[style], marginRight: 2 }}>{STYLE_LETTERS[style]}</span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DoomCounter({ region }: { region: WavesRegion }) {
   const settings = useSettingsStore(colosseumSettings);
   const stacks = useSyncExternalStore(region.subscribeWaveState, region.getDoomStacks, region.getDoomStacks);
@@ -421,7 +537,7 @@ function DoomCounter({ region }: { region: WavesRegion }) {
       pointerEvents: "none",
       position: "absolute",
       textShadow: "1px 1px 0 black",
-      top: 40,
+      bottom: 120,
       zIndex: 1,
     }}>
       Doom: {stacks} / {DOOM_LETHAL_STACKS[settings.invocations.doom]}
@@ -600,6 +716,12 @@ export function ColosseumApp() {
   const isLoaded = loading?.status === "ready";
 
   useEffect(() => {
+    if (trainer.region instanceof WavesRegion) {
+      trainer.region.replay.setLiveSpeed(colosseumSettings.getSnapshot().practiceSpeed);
+    }
+  }, [trainer]);
+
+  useEffect(() => {
     if (!(trainer.region instanceof WavesRegion)) return;
     const region = trainer.region;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -646,6 +768,7 @@ export function ColosseumApp() {
         {trainer.region instanceof WavesRegion && isLoaded && <WaveTimer region={trainer.region} />}
         {trainer.region instanceof WavesRegion && isLoaded && <WaveStartModal region={trainer.region} />}
         {trainer.region instanceof WavesRegion && isLoaded && <DoomCounter region={trainer.region} />}
+        {trainer.region instanceof WavesRegion && isLoaded && <CoachOverlay region={trainer.region} />}
         {trainer.region instanceof WavesRegion && isLoaded && <ReplayOverlay region={trainer.region} />}
         <LoadoutManager
           loadouts={loadoutTemplates}

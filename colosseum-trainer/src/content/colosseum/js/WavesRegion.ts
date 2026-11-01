@@ -47,6 +47,7 @@ import {
   MYOPIA_RANGE_REDUCTION,
 } from "./Invocations";
 import { ReplayController, type RunConfig } from "./ReplayController";
+import { computeCoach, PRAYER_NAMES, type CoachState } from "./Coach";
 
 const WaveSerpentShaman = withWaveSpawnPathing(SerpentShaman);
 const WaveJavelinColossus = withWaveSpawnPathing(JavelinColossus);
@@ -237,6 +238,9 @@ export class WavesRegion extends ColosseumRegion {
   private quartetPool: Mob[] = [];
   private runConfig: RunConfig;
   private doomStacks = 0;
+  private coachState: CoachState = { instruction: "", detail: "", targetTile: null, nextTicks: [], pray: null, conflict: false };
+  private coachMarker: TileMarker | null = null;
+  private autoMovedTo: string | null = null;
   private venom: { damage: number; ticks: number } | null = null;
 
   /** Records every run and plays back deaths. */
@@ -345,7 +349,11 @@ export class WavesRegion extends ColosseumRegion {
       forceDoubleSouth: settings.forceDoubleSouth,
       npcsAggressive: settings.npcsAggressive,
       invocations: settings.invocations,
+      autoPray: settings.autoPray,
+      autoMove: settings.autoMove,
     });
+    this.coachMarker = null;
+    this.autoMovedTo = null;
     this.selectedWave = this.runConfig.wave as WaveNumber;
     this.doomStacks = 0;
     this.venom = null;
@@ -520,6 +528,64 @@ export class WavesRegion extends ColosseumRegion {
 
   override postTick() {
     this.tickInvocations();
+    this.advanceWave();
+    this.updateCoach();
+  }
+
+  readonly getCoach = () => this.coachState;
+
+  /** Real-time coaching, plus the optional auto-prayer / auto-move training wheels. */
+  private updateCoach() {
+    const player = this.players[0];
+    this.coachState = computeCoach({
+      region: this,
+      player,
+      phase: this.wavePhase,
+      spawnTicksLeft: this.waveSpawnTicks,
+      waveTick: this.waveTick,
+      startTile: START_TILE,
+      aTile: A_TILE,
+      bTile: B_TILE,
+      aSpawn: SOUTH_SPAWN_2,
+      bSpawn: SOUTH_SPAWN_1,
+      tossTiles: this.entities.filter((entity) => entity.color === "#FF3000").map((entity) => entity.location),
+    });
+
+    if (player && player.dying < 0) {
+      const { autoPray, autoMove } = this.runConfig;
+      const target = this.coachState.targetTile;
+      if (autoMove && target && this.wavePhase !== "waiting") {
+        const key = `${target.x},${target.y}`;
+        // Click B on the spawn tick (countdown 1), then re-target if the spawns say A / double manticore.
+        const due = this.wavePhase === "active" || this.waveSpawnTicks <= 1;
+        if (due && this.autoMovedTo !== key) {
+          this.autoMovedTo = key;
+          player.moveTo(target.x, target.y);
+        }
+      }
+      if (autoPray && this.coachState.pray) {
+        const wanted = player.prayerController.findPrayerByName(PRAYER_NAMES[this.coachState.pray]);
+        if (wanted && !wanted.isActive && player.currentStats.prayer > 0) wanted.activate(player);
+      }
+    }
+
+    // Highlight the tile the coach wants you on.
+    const showMarker = colosseumSettings.getSnapshot().coach && this.coachState.targetTile;
+    if (!showMarker && this.coachMarker) {
+      this.removeEntity(this.coachMarker);
+      this.coachMarker = null;
+    } else if (showMarker) {
+      const { x, y } = this.coachState.targetTile;
+      if (!this.coachMarker || this.coachMarker.location.x !== x || this.coachMarker.location.y !== y) {
+        if (this.coachMarker) this.removeEntity(this.coachMarker);
+        this.coachMarker = new TileMarker(this, { x, y }, "#FFFFFF", 1, false);
+        this.addEntity(this.coachMarker);
+      }
+    }
+    this.notifyWaveStateChanged();
+  }
+
+  private advanceWave() {
     if (this.wavePhase === "waiting" && this.waveStartRequested) {
       const countdown = () => {
         // postTick is a server-tick boundary: close the modal here, then count

@@ -19,6 +19,9 @@ export type RunConfig = {
   forceDoubleSouth: boolean;
   npcsAggressive: boolean;
   invocations: InvocationState;
+  /** Training wheels that change the outcome, so replays must know about them. */
+  autoPray: boolean;
+  autoMove: boolean;
 };
 
 export type Recording = {
@@ -62,6 +65,8 @@ export class ReplayController {
   private replayTick = 0;
   private paused = false;
   private speed = 1;
+  /** Practice speed for live play (1 = real time). */
+  private liveSpeed = 1;
   private listeners = new Set<() => void>();
   private snapshot = this.createSnapshot();
 
@@ -204,8 +209,13 @@ export class ReplayController {
     this.emit();
   }
 
+  setLiveSpeed(speed: number) {
+    this.liveSpeed = speed;
+    this.applySpeed();
+  }
+
   private applySpeed() {
-    Settings.tickMs = this.mode === "replay" ? Math.round(600 / this.speed) : 600;
+    Settings.tickMs = Math.round(600 / (this.mode === "replay" ? this.speed : this.liveSpeed));
   }
 
   /** Leave the replay and start a fresh run. */
