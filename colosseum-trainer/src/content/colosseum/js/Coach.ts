@@ -30,8 +30,18 @@ export const PRAYER_NAMES: Record<CombatStyle, string> = {
 
 export const LOOKAHEAD_TICKS = 6;
 
-// Manticore orb enum order in the SDK: Range, Mage, Melee.
+// Manticore orb enum order in the SDK: Range, Mage, Melee (max hits 36 / 31 / 31).
 const ORB_STYLES: CombatStyle[] = ["range", "magic", "melee"];
+const ORB_MAX_HITS = [36, 31, 31];
+
+/** Rough max hit for weighing which style to pray when two land together. */
+function estimateMaxHit(mob: Mob, style: CombatStyle) {
+  if (style === "magic") {
+    const base = mob.magicMaxHit();
+    if (base > 0) return Math.floor(base * (mob.bonuses.other.magicDamage || 1));
+  }
+  return mob.maxHit || 30;
+}
 const MANTICORE_ATTACK_SPEED = 10;
 
 type Tile = { x: number; y: number };
@@ -81,12 +91,12 @@ export function predictAttacks(region: Region, player: Player): IncomingAttack[]
       const sinceVolley = MANTICORE_ATTACK_SPEED - delay;
       if (internals.hasAttacked && sinceVolley >= 0 && sinceVolley < 2) {
         for (let orb = sinceVolley + 1; orb <= 2; orb++) {
-          add(orb - sinceVolley, { style: ORB_STYLES[orbs[orb]], source: name, maxHit: 36 });
+          add(orb - sinceVolley, { style: ORB_STYLES[orbs[orb]], source: name, maxHit: ORB_MAX_HITS[orbs[orb]] });
         }
       }
       if (mob.hasLOS) {
         const first = Math.max(1, delay);
-        orbs.forEach((orb, index) => add(first + index, { style: ORB_STYLES[orb], source: name, maxHit: 36 }));
+        orbs.forEach((orb, index) => add(first + index, { style: ORB_STYLES[orb], source: name, maxHit: ORB_MAX_HITS[orb] }));
       }
       continue;
     }
@@ -102,7 +112,7 @@ export function predictAttacks(region: Region, player: Player): IncomingAttack[]
       attacksMade++;
       const toss = mob instanceof JavelinColossus && attacksMade % 5 === 0;
       // A javelin toss can't be prayed against; it lands 6 ticks later on the tile you were on.
-      if (!toss) add(offset, { style, source: name, maxHit: mob.maxHit || 30 });
+      if (!toss) add(offset, { style, source: name, maxHit: estimateMaxHit(mob, style) });
     }
   }
   return ticks;

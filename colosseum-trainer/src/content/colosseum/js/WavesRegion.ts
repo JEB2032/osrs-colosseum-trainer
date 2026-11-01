@@ -48,6 +48,7 @@ import {
 } from "./Invocations";
 import { ReplayController, type RunConfig } from "./ReplayController";
 import { computeCoach, PRAYER_NAMES, type CoachState } from "./Coach";
+import { AutoPilot } from "./AutoPilot";
 
 const WaveSerpentShaman = withWaveSpawnPathing(SerpentShaman);
 const WaveJavelinColossus = withWaveSpawnPathing(JavelinColossus);
@@ -241,6 +242,7 @@ export class WavesRegion extends ColosseumRegion {
   private coachState: CoachState = { instruction: "", detail: "", targetTile: null, nextTicks: [], pray: null, conflict: false };
   private coachMarker: TileMarker | null = null;
   private autoMovedTo: string | null = null;
+  private autoPilot = new AutoPilot();
   private venom: { damage: number; ticks: number } | null = null;
 
   /** Records every run and plays back deaths. */
@@ -349,9 +351,12 @@ export class WavesRegion extends ColosseumRegion {
       forceDoubleSouth: settings.forceDoubleSouth,
       npcsAggressive: settings.npcsAggressive,
       invocations: settings.invocations,
-      autoPray: settings.autoPray,
-      autoMove: settings.autoMove,
+      // The full demo implies the opening movement and prayer flicks.
+      autoPray: settings.autoPray || settings.autoFight,
+      autoMove: settings.autoMove || settings.autoFight,
+      autoFight: settings.autoFight,
     });
+    this.autoPilot = new AutoPilot();
     this.coachMarker = null;
     this.autoMovedTo = null;
     this.selectedWave = this.runConfig.wave as WaveNumber;
@@ -566,6 +571,20 @@ export class WavesRegion extends ColosseumRegion {
       if (autoPray && this.coachState.pray) {
         const wanted = player.prayerController.findPrayerByName(PRAYER_NAMES[this.coachState.pray]);
         if (wanted && !wanted.isActive && player.currentStats.prayer > 0) wanted.activate(player);
+      }
+      if (this.runConfig.autoFight) {
+        const openingTarget = this.wavePhase === "active" && this.waveTick <= 12 ? target : null;
+        this.autoPilot.tick({
+          region: this,
+          player,
+          phase: this.wavePhase,
+          waveTick: this.waveTick,
+          tossTiles: this.entities.filter((entity) => entity.color === "#FF3000").map((entity) => entity.location),
+          holdPosition: !!openingTarget && (player.location.x !== openingTarget.x || player.location.y !== openingTarget.y),
+        });
+        if (this.autoPilot.status) {
+          this.coachState = { ...this.coachState, detail: `Demo: ${this.autoPilot.status}` };
+        }
       }
     }
 

@@ -31,6 +31,8 @@ export type ColosseumSettingsState = {
   autoPray: boolean;
   /** Training wheels: the trainer does the A/B opening movement for you. */
   autoMove: boolean;
+  /** Full demo: the trainer plays the whole wave (moves, prays, attacks, drinks, solves stacks). */
+  autoFight: boolean;
   /** Live game speed for practice (1 = real time). */
   practiceSpeed: number;
 };
@@ -54,6 +56,7 @@ const defaults: ColosseumSettingsState = {
   coach: true,
   autoPray: false,
   autoMove: false,
+  autoFight: false,
   practiceSpeed: 1,
 };
 
@@ -96,6 +99,7 @@ const storage: SettingsStorage<ColosseumSettingsState> = {
       coach: true,
       autoPray: false,
       autoMove: false,
+      autoFight: false,
       practiceSpeed: 1,
     };
     jsonStorage.save(migrated);

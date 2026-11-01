@@ -22,6 +22,8 @@ export type RunConfig = {
   /** Training wheels that change the outcome, so replays must know about them. */
   autoPray: boolean;
   autoMove: boolean;
+  /** Full demo: the trainer also attacks, drinks and solves stacks. */
+  autoFight: boolean;
 };
 
 export type Recording = {

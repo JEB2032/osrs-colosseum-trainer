@@ -37,6 +37,10 @@ All game assets are property of Jagex. Not affiliated with Jagex.
   early for a double manticore, which protection prayer the next tick needs, a 6-tick incoming
   attack strip, and javelin-dodge warnings. Training wheels: auto-move the A/B opening and
   auto-pray (both recorded in replays). Practice game speed 1× / 0.75× / 0.5× / 0.25×.
+- **Auto-fight demo**: plays the whole wave — A/B opening, prayer flicks, bow switch + ranging pot,
+  frems first (melee → mage → range), minotaur before a shaman it would heal, eats/restores,
+  dodges javelins and repositions to split stacks — explaining each decision in the coach panel.
+  Cleared 12/12 test runs of waves 10–11. Heuristic, not a perfect player.
 
 ## Layout
 

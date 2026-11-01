@@ -214,6 +214,15 @@ function WavesSidebar({ region }: { region: WavesRegion }) {
         Auto-pray (training wheels)
       </label>
       <br />
+      <label title="Applies from the next restart">
+        <input
+          type="checkbox"
+          checked={settings.autoFight}
+          onChange={(event) => colosseumSettings.set({ autoFight: event.currentTarget.checked })}
+        />
+        Auto-fight demo (plays the whole wave)
+      </label>
+      <br />
       <label>
         Game speed{" "}
         <select
