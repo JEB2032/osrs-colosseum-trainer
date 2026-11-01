@@ -26,7 +26,7 @@ All game assets are property of Jagex. Not affiliated with Jagex.
   Moon spear (Blood Barrage autocast), fire cape, blood fury, Rada's blessing 4, barrows gloves,
   Aranea boots, berserker ring (i); Blue Moon set, bowfa, tentacle + dragon defender switches;
   10 brews, 8 restores, ranging, super combat, 2 prayer regen.
-- **Reinforcements**: random which one comes out first; the leader takes the gate slot nearer the
+- **Reinforcements**: mage first — the serpent shaman always comes out first; it takes the gate slot nearer the
   player and the other follows 2 ticks later (assumed delay).
 - **NPC tile highlights** (NPC Indicators style): berserker light blue, archer red, seer green,
   shaman blue, jaguar red, javelin green, manticore green, shockwave blue, minotaur red.

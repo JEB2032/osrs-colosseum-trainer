@@ -658,10 +658,11 @@ export class WavesRegion extends ColosseumRegion {
     else if (this.selectedWave <= 9) reinforcements = [pool.minotaur];
     else reinforcements = [pool.minotaur, pool.shaman];
 
-    // Which reinforcement comes out first is random in game (the shaman sometimes leads). The
+    // Mage-first reinforcements (trainer choice): the serpent shaman always comes out first. The
     // leader takes the gate slot nearer the player and moves at once; the rest follow
-    // REINFORCEMENT_FOLLOW_TICKS later, so a 1x1 shaman can lead a 3x3 minotaur.
+    // REINFORCEMENT_FOLLOW_TICKS later, so the 1x1 shaman stays ahead of a 3x3 minotaur.
     reinforcements = shuffle(reinforcements);
+    reinforcements.sort((first, second) => Number(second instanceof SerpentShaman) - Number(first instanceof SerpentShaman));
     const leader = reinforcements[0];
     const player = this.players[0];
     const y = player.location.y <= 27 ? NORTH_REINFORCEMENT_Y : SOUTH_REINFORCEMENT_Y;
