@@ -17,6 +17,11 @@ const EAT_BELOW_HP = 65;
 const SUSTAIN_ENTER_HP = 75;
 const SUSTAIN_EXIT_HP = 92;
 const BOW = "Bow of faerdhinen";
+const SGS = "Saradomin godsword";
+// Healing Blade: spec a mob standing next to us when this low and the bar has 50%.
+const SGS_HEAL_BELOW_HP = 70;
+const SGS_SPEC_COST = 50;
+const SGS_SPEC_TIMEOUT_TICKS = 8;
 const SPEAR = "Blue Moon spear";
 // Eat sooner when several mobs can hit you at once.
 const EAT_BELOW_HP_UNDER_PRESSURE = 80;
@@ -98,6 +103,8 @@ export class AutoPilot {
   private stall: { target: Mob; bestHp: number; since: number } | null = null;
   private setAside = new Map<Mob, number>();
   private sustaining = false;
+  private specTicks = 0;
+  private specEnergyBefore = 0;
   /** What the demo is doing and why, for the coach panel. */
   status = "";
 
@@ -115,6 +122,7 @@ export class AutoPilot {
 
     const threats = liveMobs(region).filter((mob) => threatens(region, mob, player.location)).length;
     this.useSupplies(player, threats);
+    if (this.healWithSgs(region, player)) return;
     this.chooseWeapon(player);
 
     const here = player.location;
@@ -205,6 +213,39 @@ export class AutoPilot {
     const ranging = findItem(player, "Ranging potion");
     if (ranging && player.eats.canDrinkPotion()) ranging.inventoryLeftClick(player);
     this.prepared = true;
+  }
+
+  /**
+   * Saradomin godsword Healing Blade: when low with 50% spec, swap to the SGS, spec a mob that is
+   * already next to us, then go back to the ranged weapon once the spec has gone off.
+   */
+  private healWithSgs(region: Region, player: Player): boolean {
+    const energy = player.currentStats.specialAttack;
+    if (this.specTicks > 0) {
+      const fired = energy < this.specEnergyBefore;
+      if (fired || ++this.specTicks > SGS_SPEC_TIMEOUT_TICKS) {
+        this.specTicks = 0;
+        player.useSpecialAttack = false;
+        return false;
+      }
+      this.status = "Healing Blade: speccing with the Saradomin godsword";
+      return true;
+    }
+    if (player.currentStats.hitpoint >= SGS_HEAL_BELOW_HP || energy < SGS_SPEC_COST) return false;
+    const here = player.location;
+    const adjacent = liveMobs(region).find((mob) => canHitFrom(region, here, mob, 1));
+    if (!adjacent) return false;
+    if (player.equipment.weapon?.itemName !== SGS) {
+      const sgs = findItem(player, SGS);
+      if (!sgs) return false;
+      sgs.inventoryLeftClick(player);
+    }
+    player.useSpecialAttack = true;
+    Trainer.clickController.playerAttackClick(adjacent);
+    this.specTicks = 1;
+    this.specEnergyBefore = energy;
+    this.status = `Healing Blade: speccing the ${adjacent.mobName()} to heal`;
+    return true;
   }
 
   /** Bow normally; the Blood Barrage spear for healing once the brews are gone. */

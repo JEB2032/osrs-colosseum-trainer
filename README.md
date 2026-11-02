@@ -41,8 +41,9 @@ All game assets are property of Jagex. Not affiliated with Jagex.
 - **Auto-fight demo**: plays the whole wave — A/B opening, prayer flicks, bow switch + ranging pot,
   frems first (melee → mage → range), minotaur before a shaman it would heal, eats/restores,
   dodges javelins and repositions to split stacks — explaining each decision in the coach panel.
-  Out of brews, it switches to the Blue Moon spear (Blood Barrage heals) until healthy. With the
-  current 5-brew inventory it cleared 9/12 test runs of waves 10–11. Heuristic, not a perfect player.
+  Below 70 HP with 50% spec it swaps to the Saradomin godsword and Healing Blades an adjacent mob;
+  out of brews it switches to the Blue Moon spear (Blood Barrage heals) until healthy. With the
+  current 5-brew inventory it cleared 10/12 test runs of waves 10–11. Heuristic, not a perfect player.
 
 ## Layout
 
