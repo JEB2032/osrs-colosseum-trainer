@@ -13,6 +13,11 @@ const PRIORITY: Record<string, number> = {
 const DEFAULT_PRIORITY = 4;
 
 const EAT_BELOW_HP = 65;
+// Out of brews: fight with the Blue Moon spear's Blood Barrage (heals 25% of damage) until healthy.
+const SUSTAIN_ENTER_HP = 75;
+const SUSTAIN_EXIT_HP = 92;
+const BOW = "Bow of faerdhinen";
+const SPEAR = "Blue Moon spear";
 // Eat sooner when several mobs can hit you at once.
 const EAT_BELOW_HP_UNDER_PRESSURE = 80;
 const RESTORE_BELOW_PRAYER = 30;
@@ -92,6 +97,7 @@ export class AutoPilot {
   private tick_ = 0;
   private stall: { target: Mob; bestHp: number; since: number } | null = null;
   private setAside = new Map<Mob, number>();
+  private sustaining = false;
   /** What the demo is doing and why, for the coach panel. */
   status = "";
 
@@ -109,6 +115,7 @@ export class AutoPilot {
 
     const threats = liveMobs(region).filter((mob) => threatens(region, mob, player.location)).length;
     this.useSupplies(player, threats);
+    this.chooseWeapon(player);
 
     const here = player.location;
     if (tossTiles.some((tile) => tile.x === here.x && tile.y === here.y)) {
@@ -145,7 +152,8 @@ export class AutoPilot {
       } else {
         this.idleTicks = 0;
         this.destination = null;
-        this.status = `Attacking the ${target.mobName()}${reason}`;
+        const using = this.sustaining ? " with Blood Barrage to heal (out of brews)" : "";
+        this.status = `Attacking the ${target.mobName()}${using}${reason}`;
         if (player.aggro !== target) Trainer.clickController.playerAttackClick(target);
         return;
       }
@@ -197,6 +205,22 @@ export class AutoPilot {
     const ranging = findItem(player, "Ranging potion");
     if (ranging && player.eats.canDrinkPotion()) ranging.inventoryLeftClick(player);
     this.prepared = true;
+  }
+
+  /** Bow normally; the Blood Barrage spear for healing once the brews are gone. */
+  private chooseWeapon(player: Player) {
+    const brewsLeft = player.inventory.some((item) => item && item.itemName === "Saradomin Brew");
+    const hp = player.currentStats.hitpoint;
+    if (!brewsLeft && hp < SUSTAIN_ENTER_HP) this.sustaining = true;
+    else if (brewsLeft || hp >= SUSTAIN_EXIT_HP) this.sustaining = false;
+    const wanted = this.sustaining ? SPEAR : BOW;
+    if (player.equipment.weapon?.itemName === wanted) return;
+    const weapon = findItem(player, wanted);
+    if (!weapon) return;
+    const target = player.aggro;
+    weapon.inventoryLeftClick(player);
+    // Switching weapons drops the target; carry on attacking it.
+    if (target && target.dying < 0) Trainer.clickController.playerAttackClick(target);
   }
 
   private useSupplies(player: Player, threats: number) {

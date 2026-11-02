@@ -1,4 +1,5 @@
 export enum ItemName {
+  SARADOMIN_GODSWORD = "Saradomin godsword",
   FIRE_CAPE = "Fire cape",
   BLUE_MOON_HELM = "Blue Moon helm",
   BLUE_MOON_CHESTPLATE = "Blue Moon chestplate",

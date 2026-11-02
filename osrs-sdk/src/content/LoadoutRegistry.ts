@@ -22,6 +22,9 @@ const loadoutItems = itemConstructors
   .filter((item) => typeof item.cacheItemId === "number");
 
 /** Static item registry used to resolve Loadout item IDs for UI and tooling. */
-export const LoadoutRegistry = new Map<number, Item>(
-  loadoutItems.map((item): [number, Item] => [item.cacheItemId as number, item]),
-);
+export const LoadoutRegistry = new Map<number, Item>();
+// Some items share a cache ID (e.g. seeking dragon arrows reuse dragon arrows' model); the first
+// registered item keeps the ID so it resolves to the base item.
+loadoutItems.forEach((item) => {
+  if (!LoadoutRegistry.has(item.cacheItemId as number)) LoadoutRegistry.set(item.cacheItemId as number, item);
+});

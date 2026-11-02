@@ -24,8 +24,9 @@ All game assets are property of Jagex. Not affiliated with Jagex.
   typeless) and **Minotaur heal** (heals NPCs under 75% within 7 tiles/LoS while you're out of melee).
 - **Real-fight loadout** (default on the waves page): starts in Crystal helm/body/legs with the Blue
   Moon spear (Blood Barrage autocast), fire cape, blood fury, Rada's blessing 4, barrows gloves,
-  Aranea boots, berserker ring (i); Blue Moon set, bowfa, tentacle + dragon defender switches;
-  10 brews, 8 restores, ranging, super combat, 2 prayer regen.
+  Aranea boots, berserker ring (i); Blue Moon set, bowfa, tentacle + dragon defender, Venator bow +
+  dragon arrows, Eye of Ayak and Saradomin godsword switches; 5 brews, 8 restores, ranging, super
+  combat, 2 prayer regen.
 - **Reinforcements**: mage first — the serpent shaman always comes out first; it takes the gate slot nearer the
   player and the other follows 2 ticks later (assumed delay).
 - **NPC tile highlights** (NPC Indicators style): berserker light blue, archer red, seer green,
@@ -40,7 +41,8 @@ All game assets are property of Jagex. Not affiliated with Jagex.
 - **Auto-fight demo**: plays the whole wave — A/B opening, prayer flicks, bow switch + ranging pot,
   frems first (melee → mage → range), minotaur before a shaman it would heal, eats/restores,
   dodges javelins and repositions to split stacks — explaining each decision in the coach panel.
-  Cleared 12/12 test runs of waves 10–11. Heuristic, not a perfect player.
+  Out of brews, it switches to the Blue Moon spear (Blood Barrage heals) until healthy. With the
+  current 5-brew inventory it cleared 9/12 test runs of waves 10–11. Heuristic, not a perfect player.
 
 ## Layout
 

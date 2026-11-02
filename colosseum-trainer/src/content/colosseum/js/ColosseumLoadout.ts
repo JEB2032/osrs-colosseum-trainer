@@ -123,15 +123,15 @@ export const realFightLoadout: Loadout = {
     CACHE_ASSETS.items.dragonDefender.id,
     CACHE_ASSETS.items.saradominBrew.id,
 
-    CACHE_ASSETS.items.saradominBrew.id,
-    CACHE_ASSETS.items.saradominBrew.id,
-    CACHE_ASSETS.items.saradominBrew.id,
-    CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.venatorBow.id,
+    CACHE_ASSETS.items.dragonArrows.id,
+    CACHE_ASSETS.items.eyeOfAyak.id,
+    CACHE_ASSETS.items.saradominGodsword.id,
 
     CACHE_ASSETS.items.saradominBrew.id,
     CACHE_ASSETS.items.saradominBrew.id,
     CACHE_ASSETS.items.saradominBrew.id,
-    CACHE_ASSETS.items.saradominBrew.id,
+    null,
 
     CACHE_ASSETS.items.superRestore.id,
     CACHE_ASSETS.items.superRestore.id,
