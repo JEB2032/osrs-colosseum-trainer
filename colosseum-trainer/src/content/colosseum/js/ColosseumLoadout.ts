@@ -131,17 +131,17 @@ export const realFightLoadout: Loadout = {
     CACHE_ASSETS.items.saradominBrew.id,
     CACHE_ASSETS.items.saradominBrew.id,
     CACHE_ASSETS.items.saradominBrew.id,
+    CACHE_ASSETS.items.toxicBlowpipe.id,
+
+    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.superRestore.id,
+    CACHE_ASSETS.items.superRestore.id,
+
+    CACHE_ASSETS.items.superRestore.id,
     null,
-
-    CACHE_ASSETS.items.superRestore.id,
-    CACHE_ASSETS.items.superRestore.id,
-    CACHE_ASSETS.items.superRestore.id,
-    CACHE_ASSETS.items.superRestore.id,
-
-    CACHE_ASSETS.items.superRestore.id,
-    CACHE_ASSETS.items.superRestore.id,
-    CACHE_ASSETS.items.superRestore.id,
-    CACHE_ASSETS.items.superRestore.id,
+    null,
+    null,
 
     CACHE_ASSETS.items.rangingPotion.id,
     CACHE_ASSETS.items.superCombatPotion.id,

@@ -25,8 +25,8 @@ All game assets are property of Jagex. Not affiliated with Jagex.
 - **Real-fight loadout** (default on the waves page): starts in Crystal helm/body/legs with the Blue
   Moon spear (Blood Barrage autocast), fire cape, blood fury, Rada's blessing 4, barrows gloves,
   Aranea boots, berserker ring (i); Blue Moon set, bowfa, tentacle + dragon defender, Venator bow +
-  dragon arrows, Eye of Ayak and Saradomin godsword switches; 5 brews, 8 restores, ranging, super
-  combat, 2 prayer regen.
+  dragon arrows, Eye of Ayak, Saradomin godsword and toxic blowpipe (amethyst darts) switches;
+  5 brews, 5 restores, ranging, super combat, 2 prayer regen.
 - **Reinforcements**: mage first — the serpent shaman always comes out first; it takes the gate slot nearer the
   player and the other follows 2 ticks later (assumed delay).
 - **NPC tile highlights** (NPC Indicators style): berserker light blue, archer red, seer green,

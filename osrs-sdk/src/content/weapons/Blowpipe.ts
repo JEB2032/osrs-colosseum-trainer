@@ -49,7 +49,7 @@ export class Blowpipe extends RangedWeapon {
       },
       other: {
         meleeStrength: 0,
-        rangedStrength: 20 + 35, // simulating dragon darts atm
+        rangedStrength: 20 + 28, // loaded with amethyst darts (+28)
         magicDamage: 0,
         prayer: 0,
       },
