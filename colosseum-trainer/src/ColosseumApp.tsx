@@ -3,6 +3,7 @@ import {
   CacheRender,
   cacheSound,
   ControlPanelController,
+  FixedLayout,
   Manticore,
   Renderable,
   Region,
@@ -137,7 +138,7 @@ function createTrainer() {
   const region = regions[regionName] ?? regions["waves.html"];
   const trainer = new TrainerInstance(region, { readyTimer: 5 });
   // Console handle for debugging and automated checks.
-  (window as unknown as { colosseum: unknown }).colosseum = { trainer, region, Settings };
+  (window as unknown as { colosseum: unknown }).colosseum = { trainer, region, Settings, FixedLayout };
   return trainer;
 }
 

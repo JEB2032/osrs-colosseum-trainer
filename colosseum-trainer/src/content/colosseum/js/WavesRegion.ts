@@ -422,6 +422,8 @@ export class WavesRegion extends ColosseumRegion {
     const { invocations } = this.runConfig;
     const damage = Math.max(0, projectile.damage);
 
+    this.explainHitThroughPrayer(player, projectile, damage);
+
     if (invocations.blasphemy > 0 && damage > 0) {
       const drain = Math.floor(damage * BLASPHEMY_DRAIN_RATIO[invocations.blasphemy]);
       player.currentStats.prayer = Math.max(0, player.currentStats.prayer - drain);
@@ -447,6 +449,25 @@ export class WavesRegion extends ColosseumRegion {
         FixedLayout.addChatMessage("You have been envenomed!", "#007f00");
       }
     }
+  }
+
+  /**
+   * Prayer is checked when an NPC attacks, not when the hit lands. Slow projectiles (e.g. the
+   * Shockwave Colossus, 3-6 ticks) therefore still hit if you switched prayer after they fired.
+   */
+  private explainHitThroughPrayer(player: Player, projectile: Projectile, damage: number) {
+    if (damage <= 0 || !projectile.from || projectile.from === player) return;
+    const style = projectile.attackStyle;
+    const prayerName = style === "magic" ? "Protect from Magic"
+      : style === "range" ? "Protect from Range"
+      : ["stab", "slash", "crush"].includes(style) ? "Protect from Melee" : null;
+    if (!prayerName || !player.prayerController.findPrayerByName(prayerName)?.isActive) return;
+    // Weapons add 1 to their hit delay because it is decremented on the attack tick itself.
+    const ticksAgo = Math.max(1, projectile.totalDelay - 1);
+    FixedLayout.addChatMessage(
+      `${(projectile.from as Mob).mobName()} hit through ${prayerName}: it attacked ${ticksAgo} ticks ago, before you switched.`,
+      "#ff0000",
+    );
   }
 
   override onUnitDeath(unit: Unit) {
