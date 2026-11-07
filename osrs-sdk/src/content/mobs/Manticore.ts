@@ -238,7 +238,9 @@ export class Manticore extends Mob {
 
   override attackStep() {
     super.attackStep();
-    if (this.aggro && this.hasLOS && !this.attackStyles) {
+    // The first charge only starts once the Manticore may attack (its spawn delay has run out) and
+    // it sees you then. Seeing it during the first ticks of a wave and hiding again doesn't start it.
+    if (this.aggro && this.hasLOS && !this.attackStyles && this.attackDelay <= 0 && this.canAttack()) {
       this.selectAttackStyle();
       this.attackDelay = 10;
     }
