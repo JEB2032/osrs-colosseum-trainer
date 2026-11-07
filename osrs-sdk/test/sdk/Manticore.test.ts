@@ -28,7 +28,7 @@ describe("Manticore coordination", () => {
     region.players.push(player);
     region.mobs.push(styled, unstyled);
     (styled as any).attackStyles = [0, 1, 2];
-    unstyled.attackDelay = 10;
+    unstyled.attackDelay = 0;
 
     unstyled.attackStep();
 
@@ -40,6 +40,36 @@ describe("Manticore coordination", () => {
 
     expect((unstyled as any).attackStyles).toEqual([0, 1, 2]);
     expect(unstyled.attackDelay).toBe(10);
+  });
+
+  test("seeing the player during its spawn delay doesn't start the charge", () => {
+    const region = new TestRegion(40, 40);
+    const world = new World();
+    region.world = world;
+    const player = new Player(region, { x: 15, y: 15 });
+    const manticore = new Manticore(region, { x: 10, y: 5 }, { aggro: player });
+    region.players.push(player);
+    region.mobs.push(manticore);
+    manticore.attackDelay = 1; // still can't attack, like tick 2 of a wave
+
+    manticore.attackStep();
+
+    expect(manticore.hasLOS).toBe(true);
+    expect((manticore as any).attackStyles).toBeNull();
+    expect(manticore.attackDelay).toBe(1);
+
+    // The player hides again: the delay runs out without line of sight, still no charge.
+    player.setLocation({ x: 38, y: 38 });
+    manticore.attackDelay = 0;
+    manticore.attackStep();
+    expect(manticore.hasLOS).toBe(false);
+    expect((manticore as any).attackStyles).toBeNull();
+
+    // Only when it sees the player once it may attack does the 10-tick charge start.
+    player.setLocation({ x: 15, y: 15 });
+    manticore.attackStep();
+    expect((manticore as any).attackStyles).not.toBeNull();
+    expect(manticore.attackDelay).toBe(10);
   });
 
   test("an attacking Manticore offsets ready peers by five ticks", () => {
