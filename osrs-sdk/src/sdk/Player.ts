@@ -43,6 +43,8 @@ class PlayerEffects {
   stamina = 0;
   /** Ticks left on a prayer regeneration potion (restores 1 Prayer every 12 ticks). */
   prayerRegeneration = 0;
+  /** Ticks of venom immunity left (anti-venom). */
+  antiVenom = 0;
 }
 
 // player can rotate this many JAUs per client tick

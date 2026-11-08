@@ -45,6 +45,24 @@ All game assets are property of Jagex. Not affiliated with Jagex.
   out of brews it switches to the Blue Moon spear (Blood Barrage heals) until healthy. With the
   current 5-brew inventory it cleared 10/12 test runs of waves 10–11. Heuristic, not a perfect player.
 
+## Doom of Mokhaiotl (delves 5–8): `doom.html`
+
+Pick delve 5, 6, 7 or 8 on the start screen, then press Start (Space). The player starts in the wiki's
+budget setup: scorching bow, void, anguish, assembler and Lightbearer worn, with Darklight, Slayer's
+staff (e), rosewood blowpipe, crystal halberd, Book of the dead, anglerfish, brews, restores,
+divine ranging and extended anti-venom+ in the inventory.
+
+- Standard orbs (magic, ranged, melee) are checked against your prayer when they land. Melee range adds the tongue lash.
+- Rock throw drops debris (with shadows) and knocks your overhead prayers off. The solid rocks it leaves block movement and line of sight.
+- Melee charge (protect from magic and missiles) must be punished with melee, or the beam fires.
+- Shield phase (500 HP): only demonbane damages it. Larvae arrive from a random side.
+- Burrowed (car) phase: follow the yellow eye and dodge the trample. From delve 6 it car-slams, and rocks give cover.
+- Volatile earth: break two to raise the earthen shield before the shockwaves.
+- Larvae: coloured larvae only take damage from their style. Any that reach the Doom heal it and add demonic charge. Delve 8 adds giant larvae.
+- Acid blood (up to 7 damage plus venom) sprays when the Doom is hit.
+- HP, max hits, attack speed, shockwave count, beam damage and car speed scale per delve. The cave scene (region 13668 or 14180) loads from the cache.
+- Restart is Ctrl+R. "Replay last 30s" uses the same deterministic replay as the Colosseum trainer.
+
 ## Layout
 
 | Folder | Upstream | Notes |
@@ -75,3 +93,6 @@ On Windows, set `npm_config_script_shell` to Git Bash so the `rm -rf` scripts wo
 - Volatility damage (up to 20) and timing (when the death animation ends) are assumptions; the wiki
   only documents the explosion size. Solarflare orb start corners/direction are also assumed.
 - Fonts and a few weapon models load from the upstream trainers' CDNs.
+- Doom: beam charge length, larva spawn intervals, car slam damage and debris fall delay are assumed (the wiki doesn't give them).
+  Rocks, acid and the earthen shield are drawn as simple shapes because cache objects aren't extracted.
+  Not simulated: the crystal halberd special, thralls/Death Charge, teleports and the rune pouch. Divine ranging works like a normal ranging potion.

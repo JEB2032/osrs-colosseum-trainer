@@ -86,6 +86,11 @@ export class Weapon extends Equipment {
     return player.equipment.weapon;
   }
 
+  /** Demonbane weapons and spells (shields, larvae and bonus damage against demons). */
+  get isDemonbane(): boolean {
+    return false;
+  }
+
   hasSpecialAttack(): boolean {
     return false;
   }

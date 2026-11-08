@@ -15,7 +15,7 @@ export class PrayerRegenerationPotion extends Potion {
   threeDose: HTMLImageElement = ImageLoader.createImage(ThreeDose);
   fourDose: HTMLImageElement = ImageLoader.createImage(FourDose);
 
-  get cacheItemId() {
+  get cacheItemId(): number {
     return CACHE_ASSETS.items.prayerRegenerationPotion.id;
   }
 

@@ -35,6 +35,10 @@ import {
 } from "./content/colosseum/js/Invocations";
 import { REPLAY_WINDOW_TICKS } from "./content/colosseum/js/ReplayController";
 import { LOOKAHEAD_TICKS, type CombatStyle } from "./content/colosseum/js/Coach";
+import { DoomRegion } from "./content/doom/DoomRegion";
+import { doomBudgetLoadout } from "./content/doom/DoomLoadout";
+import { DoomSidebar, DoomStartModal, DoomStatus } from "./content/doom/DoomUI";
+import type { ReplayController } from "./content/colosseum/js/ReplayController";
 
 declare const __OSRS_CACHE_RENDER_MANIFEST_URL__: string;
 
@@ -130,12 +134,14 @@ function createTrainer() {
   applyTransferredSettings();
   colosseumSettings.load();
 
-  const regions: Record<string, Region> = {
-    "colosseum.html": new ColosseumRegion(loadoutTemplates),
-    "waves.html": new WavesRegion(wavesLoadoutTemplates),
+  // Only build the page's own region (regions set global UI hooks when constructed).
+  const regions: Record<string, () => Region> = {
+    "colosseum.html": () => new ColosseumRegion(loadoutTemplates),
+    "waves.html": () => new WavesRegion(wavesLoadoutTemplates),
+    "doom.html": () => new DoomRegion([doomBudgetLoadout]),
   };
   const regionName = window.location.pathname.split("/").pop() ?? "waves.html";
-  const region = regions[regionName] ?? regions["waves.html"];
+  const region = (regions[regionName] ?? regions["waves.html"])();
   const trainer = new TrainerInstance(region, { readyTimer: 5 });
   // Console handle for debugging and automated checks.
   (window as unknown as { colosseum: unknown }).colosseum = { trainer, region, Settings, FixedLayout };
@@ -557,7 +563,7 @@ function DoomCounter({ region }: { region: WavesRegion }) {
 
 const overlayButtonRow: React.CSSProperties = { display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" };
 
-function ReplayOverlay({ region }: { region: WavesRegion }) {
+function ReplayOverlay({ region }: { region: { replay: ReplayController } }) {
   const replay = useSyncExternalStore(region.replay.subscribe, region.replay.getSnapshot, region.replay.getSnapshot);
 
   if (replay.mode === "live") {
@@ -693,14 +699,16 @@ function BossSidebar({ region }: { region: ColosseumRegion }) {
   );
 }
 
-function Sidebar({ onLoadoutToggle, region }: { onLoadoutToggle: () => void; region: ColosseumRegion }) {
+function Sidebar({ onLoadoutToggle, region }: { onLoadoutToggle: () => void; region: ColosseumRegion | DoomRegion }) {
   const [showCredits, setShowCredits] = useState(false);
 
   return (
     <div>
       {region instanceof WavesRegion
         ? <WavesSidebar region={region} />
-        : <BossSidebar region={region} />}
+        : region instanceof DoomRegion
+          ? <DoomSidebar region={region} />
+          : <BossSidebar region={region} />}
       <hr />
 
       <div style={{ paddingBottom: 10, paddingTop: 10, textAlign: "center", width: "100%" }}>
@@ -729,6 +737,29 @@ export function ColosseumApp() {
     if (trainer.region instanceof WavesRegion) {
       trainer.region.replay.setLiveSpeed(colosseumSettings.getSnapshot().practiceSpeed);
     }
+  }, [trainer]);
+
+  useEffect(() => {
+    if (!(trainer.region instanceof DoomRegion)) return;
+    const region = trainer.region;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (Settings.is_keybinding) return;
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
+      if (event.ctrlKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        if (region.replay.isReplaying()) region.replay.exitReplay();
+        else Trainer.reset();
+      } else if (event.key === " " && region.replay.isReplaying()) {
+        event.preventDefault();
+        region.replay.setPaused(!region.replay.getSnapshot().paused);
+      } else if (event.key === " " && region.getSnapshot().phase === "waiting") {
+        event.preventDefault();
+        region.requestStart();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [trainer]);
 
   useEffect(() => {
@@ -780,6 +811,9 @@ export function ColosseumApp() {
         {trainer.region instanceof WavesRegion && isLoaded && <DoomCounter region={trainer.region} />}
         {trainer.region instanceof WavesRegion && isLoaded && <CoachOverlay region={trainer.region} />}
         {trainer.region instanceof WavesRegion && isLoaded && <ReplayOverlay region={trainer.region} />}
+        {trainer.region instanceof DoomRegion && isLoaded && <DoomStartModal region={trainer.region} />}
+        {trainer.region instanceof DoomRegion && isLoaded && <DoomStatus region={trainer.region} />}
+        {trainer.region instanceof DoomRegion && isLoaded && <ReplayOverlay region={trainer.region} />}
         <LoadoutManager
           loadouts={loadoutTemplates}
           open={loadoutOpen}
@@ -789,7 +823,7 @@ export function ColosseumApp() {
       <DefaultSidebar>
         <Sidebar
           onLoadoutToggle={() => setLoadoutOpen((open) => !open)}
-          region={trainer.region as ColosseumRegion}
+          region={trainer.region as ColosseumRegion | DoomRegion}
         />
       </DefaultSidebar>
     </TrainerApp>

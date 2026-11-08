@@ -15,7 +15,7 @@ export class RangingPotion extends Potion {
   threeDose: HTMLImageElement = ImageLoader.createImage(ThreeDose);
   fourDose: HTMLImageElement = ImageLoader.createImage(FourDose);
 
-  get cacheItemId() {
+  get cacheItemId(): number {
     return CACHE_ASSETS.items.rangingPotion.id;
   }
 

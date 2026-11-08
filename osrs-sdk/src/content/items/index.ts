@@ -10,3 +10,6 @@ export { SuperRestore } from './SuperRestore';
 export { ArmadylBrew } from './ArmadylBrew';
 export { RangingPotion } from "./RangingPotion";
 export { PrayerRegenerationPotion } from "./PrayerRegenerationPotion";
+export { Anglerfish } from "./Anglerfish";
+export { DivineRangingPotion } from "./DivineRangingPotion";
+export { ExtendedAntiVenomPlus } from "./ExtendedAntiVenomPlus";
