@@ -94,5 +94,5 @@ On Windows, set `npm_config_script_shell` to Git Bash so the `rm -rf` scripts wo
   only documents the explosion size. Solarflare orb start corners/direction are also assumed.
 - Fonts and a few weapon models load from the upstream trainers' CDNs.
 - Doom: beam charge length, larva spawn intervals, car slam damage and debris fall delay are assumed (the wiki doesn't give them).
-  Rocks, acid and the earthen shield are drawn as simple shapes because cache objects aren't extracted.
+  Rocks, acid and the earthen shield use their cache models; the attack beam itself is shown only as charge-up and impact graphics.
   Not simulated: the crystal halberd special, thralls/Death Charge, teleports and the rune pouch. Divine ranging works like a normal ranging potion.

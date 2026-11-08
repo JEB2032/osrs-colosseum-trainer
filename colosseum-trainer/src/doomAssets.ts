@@ -70,6 +70,13 @@ export const DOOM_ASSETS = {
     beamChargeUp: { id: 3412 },
     beamImpact: { id: 3413 },
   },
+  // Object models (ObjectID DOM_*): the asset tool extracts raw models, not object definitions.
+  models: {
+    acidBloodA: { id: 56409 },
+    acidBloodB: { id: 56411 },
+    rock: { id: 56496 },
+    rubble: { id: 49266 },
+  },
   objects: {
     acidPool: { id: 57283 },
     rock: { id: 57286 },

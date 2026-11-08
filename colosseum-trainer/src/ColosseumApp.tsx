@@ -37,7 +37,7 @@ import { REPLAY_WINDOW_TICKS } from "./content/colosseum/js/ReplayController";
 import { LOOKAHEAD_TICKS, type CombatStyle } from "./content/colosseum/js/Coach";
 import { DoomRegion } from "./content/doom/DoomRegion";
 import { doomBudgetLoadout } from "./content/doom/DoomLoadout";
-import { DoomSidebar, DoomStartModal, DoomStatus } from "./content/doom/DoomUI";
+import { DoomSidebar, DoomStartModal, DoomStatus, DoomTheme } from "./content/doom/DoomUI";
 import type { ReplayController } from "./content/colosseum/js/ReplayController";
 
 declare const __OSRS_CACHE_RENDER_MANIFEST_URL__: string;
@@ -699,16 +699,14 @@ function BossSidebar({ region }: { region: ColosseumRegion }) {
   );
 }
 
-function Sidebar({ onLoadoutToggle, region }: { onLoadoutToggle: () => void; region: ColosseumRegion | DoomRegion }) {
+function Sidebar({ onLoadoutToggle, region }: { onLoadoutToggle: () => void; region: ColosseumRegion }) {
   const [showCredits, setShowCredits] = useState(false);
 
   return (
     <div>
       {region instanceof WavesRegion
         ? <WavesSidebar region={region} />
-        : region instanceof DoomRegion
-          ? <DoomSidebar region={region} />
-          : <BossSidebar region={region} />}
+        : <BossSidebar region={region} />}
       <hr />
 
       <div style={{ paddingBottom: 10, paddingTop: 10, textAlign: "center", width: "100%" }}>
@@ -811,6 +809,7 @@ export function ColosseumApp() {
         {trainer.region instanceof WavesRegion && isLoaded && <DoomCounter region={trainer.region} />}
         {trainer.region instanceof WavesRegion && isLoaded && <CoachOverlay region={trainer.region} />}
         {trainer.region instanceof WavesRegion && isLoaded && <ReplayOverlay region={trainer.region} />}
+        {trainer.region instanceof DoomRegion && <DoomTheme />}
         {trainer.region instanceof DoomRegion && isLoaded && <DoomStartModal region={trainer.region} />}
         {trainer.region instanceof DoomRegion && isLoaded && <DoomStatus region={trainer.region} />}
         {trainer.region instanceof DoomRegion && isLoaded && <ReplayOverlay region={trainer.region} />}
@@ -820,12 +819,16 @@ export function ColosseumApp() {
           onClose={() => setLoadoutOpen(false)}
         />
       </GameOverlay>
-      <DefaultSidebar>
-        <Sidebar
-          onLoadoutToggle={() => setLoadoutOpen((open) => !open)}
-          region={trainer.region as ColosseumRegion | DoomRegion}
-        />
-      </DefaultSidebar>
+      {trainer.region instanceof DoomRegion
+        ? <DoomSidebar region={trainer.region} />
+        : (
+          <DefaultSidebar>
+            <Sidebar
+              onLoadoutToggle={() => setLoadoutOpen((open) => !open)}
+              region={trainer.region as ColosseumRegion}
+            />
+          </DefaultSidebar>
+        )}
     </TrainerApp>
   );
 }

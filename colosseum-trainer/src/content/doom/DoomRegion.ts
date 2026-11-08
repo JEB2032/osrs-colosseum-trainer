@@ -1,6 +1,7 @@
 import {
   CardinalDirection,
   FixedLayout,
+  GraphicsObject,
   ImageLoader,
   LineOfSight,
   MagicWeapon,
@@ -68,6 +69,22 @@ const ORB_SPOTANIMS: Record<Style, number> = {
   melee: DOOM_ASSETS.spotAnims.projectileMelee.id,
 };
 
+const IMPACT_SPOTANIMS: Record<Style, number> = {
+  magic: DOOM_ASSETS.spotAnims.impactMagic.id,
+  range: DOOM_ASSETS.spotAnims.impactRange.id,
+  melee: DOOM_ASSETS.spotAnims.impactMelee.id,
+};
+
+/** Orbs launched out of an exploding rock use the rock-launch graphics. */
+const ROCK_ORB_SPOTANIMS: Record<Style, number> = {
+  magic: DOOM_ASSETS.spotAnims.rockLaunchMagic.id,
+  range: DOOM_ASSETS.spotAnims.rockLaunchRange.id,
+  melee: DOOM_ASSETS.spotAnims.projectileMelee.id,
+};
+
+const SPOT = DOOM_ASSETS.spotAnims;
+const BEAM_CHANNEL = "doom-beam";
+
 const PRAYERS: Record<Style, string> = {
   magic: "Protect from Magic",
   range: "Protect from Range",
@@ -110,6 +127,11 @@ export type DoomSnapshot = {
   volatileTicks: number | null;
   meleeOnly: boolean;
   ticks: number;
+  larvae: number;
+  doomHp: number;
+  doomMaxHp: number;
+  /** Delve 6+ car phase: a slam is coming and you need rock cover. */
+  slamIncoming: boolean;
 };
 
 /** Doom of Mokhaiotl, delves 5-8: arena, rotation and hazards. */
@@ -206,6 +228,10 @@ export class DoomRegion extends Region {
       volatileTicks: this.volatileTicks,
       meleeOnly: this.meleeChargeActive,
       ticks: this.fightTicks,
+      larvae: this.mobs.filter((mob) => mob instanceof Larva && mob.dying < 0).length,
+      doomHp: this.doom?.currentStats.hitpoint ?? DELVES[this.selectedDelve].hitpoints,
+      doomMaxHp: this.doom?.stats.hitpoint ?? DELVES[this.selectedDelve].hitpoints,
+      slamIncoming: !!this.carState && !this.carState.moving && this.carState.slamIn > 0,
     });
   }
 
@@ -425,14 +451,24 @@ export class DoomRegion extends Region {
     this.fireOrb(player, style, this.delveConfig.orbTravelTicks, from);
   }
 
-  private fireOrb(player: Player, style: Style, travelTicks: number, from: Unit = this.doom!) {
+  private fireOrb(player: Player, style: Style, travelTicks: number, from: Unit = this.doom!, fromRock = false) {
     const weapon = STYLE_WEAPONS[style];
     weapon.damage = Math.floor(Random.get() * (this.delveConfig.orbMaxHit + 1));
+    const spotAnim = (fromRock ? ROCK_ORB_SPOTANIMS : ORB_SPOTANIMS)[style];
     weapon.registerProjectile(from, player, { attackStyle: style === "melee" ? "crush" : style }, {
       setDelay: travelTicks + 1,
       checkPrayerAtHit: true,
-      visuals: { spotAnim: { id: ORB_SPOTANIMS[style] }, endCycleOffset: travelTicks * 30 },
+      visuals: { spotAnim: { id: spotAnim }, endCycleOffset: travelTicks * 30 },
     });
+    this.schedule(travelTicks + 1, () => {
+      const target = this.players[0];
+      if (target && target.dying < 0) this.graphic(target.location, IMPACT_SPOTANIMS[style]);
+    });
+  }
+
+  /** One-shot cache spot animation on a tile (visual only). */
+  private graphic(tile: Tile, id: number, height = 0) {
+    this.addEntity(new GraphicsObject(this, { x: tile.x, y: tile.y }, id, { height }));
   }
 
   /** Tongue lash if you stand next to it: up to 40, halved by Protect from Melee. */
@@ -473,6 +509,7 @@ export class DoomRegion extends Region {
     }
     const shadows = [...debris, centre].map((tile) => new DebrisShadow(this, tile));
     shadows.forEach((shadow) => this.addEntity(shadow));
+    [...debris, centre].forEach((tile) => this.graphic(tile, SPOT.rockDebris.id));
     this.schedule(ROCK_FALL_TICKS, () => {
       shadows.forEach((shadow) => this.removeEntity(shadow));
       const victim = this.players[0];
@@ -484,6 +521,7 @@ export class DoomRegion extends Region {
         victim.addProjectile(new Projectile(null, damage, victim, victim, "typeless", { setDelay: 0 }));
       }
       if (onSolid) this.shove(victim, centre);
+      this.graphic(centre, SPOT.rockImpact.id);
       this.addEntity(new SolidRock(this, centre));
       // Overhead protection prayers are knocked off.
       Object.values(PRAYERS).forEach((name) => victim.prayerController.findPrayerByName(name)?.deactivate());
@@ -494,7 +532,7 @@ export class DoomRegion extends Region {
         const thisStyle = style;
         this.schedule(Math.max(0, projectileDelay - ROCK_FALL_TICKS - 1) + index, () => {
           const target = this.players[0];
-          if (target && target.dying < 0) this.fireOrb(target, thisStyle, 1);
+          if (target && target.dying < 0) this.fireOrb(target, thisStyle, 1, this.doom!, true);
         });
         style = style === "range" ? "magic" : "range";
       }
@@ -520,6 +558,7 @@ export class DoomRegion extends Region {
     this.doom!.meleeOnly = true;
     this.charge = this.delveConfig.beamChargeTicks;
     this.doom?.playAnimation(DoomAnimations.BeamCharge);
+    this.doom?.addSpotAnim({ id: SPOT.beamChargeUp.id, channel: BEAM_CHANNEL });
     FixedLayout.addChatMessage("The Doom prays against range and magic and starts charging!", "#a53fff");
   }
 
@@ -533,6 +572,8 @@ export class DoomRegion extends Region {
     const config = this.delveConfig;
     this.charge = null;
     this.doom?.playAnimation(DoomAnimations.BeamFire);
+    this.doom?.clearSpotAnim(BEAM_CHANNEL);
+    this.graphic(player.location, SPOT.beamImpact.id);
     player.addProjectile(new Projectile(null, config.beamDamage, this.doom!, player, "typeless", { setDelay: 1 }));
     FixedLayout.addChatMessage("The Doom unleashes its Special Beam Cannon!", "#ff0000");
     if (this.meleeChargeActive) {
@@ -551,6 +592,7 @@ export class DoomRegion extends Region {
     this.charge = this.delveConfig.beamChargeTicks;
     this.doom!.form = "shielded";
     this.doom?.playAnimation(DoomAnimations.BeamChargeLoop);
+    this.doom?.addSpotAnim({ id: SPOT.beamChargeUp.id, channel: BEAM_CHANNEL });
     const directions = [{ x: -1, y: 0 }, { x: -1, y: -1 }, { x: -1, y: 1 }, { x: 0, y: -1 }];
     this.shieldDirection = directions[Math.floor(Random.get() * directions.length)];
     this.larvaTimer = 2;
@@ -563,6 +605,7 @@ export class DoomRegion extends Region {
 
   private endShield() {
     this.charge = null;
+    this.doom?.clearSpotAnim(BEAM_CHANNEL);
     this.shieldHp = 0;
     this.doom!.form = "normal";
     FixedLayout.addChatMessage("The demonic shield shatters!", "#a53fff");
@@ -674,6 +717,7 @@ export class DoomRegion extends Region {
     this.volatileTicks = null;
     const config = this.delveConfig;
     this.doom?.playAnimation(DoomAnimations.AreaSlam);
+    this.graphic(this.doomCentre(), SPOT.areaSlam.id);
     for (let index = 0; index < config.shockwaves; index++) {
       this.schedule(index * 2, () => {
         const target = this.players[0];
@@ -716,6 +760,7 @@ export class DoomRegion extends Region {
     const config = this.delveConfig;
     this.phase = "car";
     doom.playAnimation(DoomAnimations.Burrow);
+    this.graphic(this.doomCentre(), SPOT.burrow.id);
     doom.form = "burrowed";
     const burrowed = new BurrowedDoom(this, { ...doom.location }, doom);
     burrowed.setStats();
@@ -773,10 +818,11 @@ export class DoomRegion extends Region {
       const target = { x: state.eye.location.x - 2, y: state.eye.location.y + 2 };
       for (let step = 0; step < config.carSpeed; step++) {
         if (burrowed.location.x === target.x && burrowed.location.y === target.y) break;
-        burrowed.setLocation({
+        burrowed.glideTo({
           x: burrowed.location.x + Math.sign(target.x - burrowed.location.x),
           y: burrowed.location.y + Math.sign(target.y - burrowed.location.y),
         });
+        if (step % 2 === 0) this.graphic(this.doomCentre(), SPOT.burrowedMovement.id);
         this.trample(player);
       }
       if (burrowed.location.x === target.x && burrowed.location.y === target.y) {
@@ -823,6 +869,8 @@ export class DoomRegion extends Region {
     const b = this.burrowed!;
     b.playAnimation(BurrowedDoomAnimations.Explosion);
     const centre = this.doomCentre();
+    this.graphic(centre, SPOT.burrowedExplosion.id);
+    this.graphic(centre, SPOT.burrowedExplosionAoe.id);
     const sees = (tile: Tile) => LineOfSight.hasLineOfSight(this, centre.x, centre.y, tile.x, tile.y, 1, 15, false);
     const rocks = this.entities.filter((entity) => entity instanceof SolidRock);
     // Check the player first, while the rocks still stand.
@@ -857,6 +905,7 @@ export class DoomRegion extends Region {
     }
     doom.form = "normal";
     this.setBoss(doom);
+    this.graphic(this.doomCentre(), SPOT.burrowedEmerge.id);
     doom.playAnimation(DoomAnimations.IdleAlt);
     this.charge = null;
     this.phase = "normal";
@@ -946,6 +995,7 @@ export class DoomRegion extends Region {
         if (bonus > 0) unit.addProjectile(new Projectile(null, bonus, player, unit, "typeless", { setDelay: 0 }));
         this.attackTimer += this.delveConfig.punishDelay;
         this.doom?.playAnimation(DoomAnimations.BeamCancel);
+        this.doom?.clearSpotAnim(BEAM_CHANNEL);
         FixedLayout.addChatMessage(`Melee punish! +${bonus} damage.`, "#00ff00");
       }
       if (this.phase === "car") this.charge = this.delveConfig.beamChargeTicks;
@@ -988,6 +1038,10 @@ export class DoomRegion extends Region {
       this.charge = null;
       FixedLayout.addChatMessage(`Delve ${this.selectedDelve} complete! The Doom burrows deeper...`, "#00aa00");
       this.mobs.filter((mob) => mob instanceof Larva || mob instanceof VolatileEarth).forEach((mob) => this.removeMob(mob));
+      // Pending hazards never resolve after the kill.
+      this.scheduled = [];
+      this.entities.filter((entity) => entity instanceof DebrisShadow || entity instanceof CarEye).forEach((entity) => this.removeEntity(entity));
+      this.doom?.clearSpotAnim(BEAM_CHANNEL);
       this.notify();
     }
   }

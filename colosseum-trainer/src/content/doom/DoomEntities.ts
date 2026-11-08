@@ -1,6 +1,9 @@
 import * as THREE from "three";
 
 import {
+  CacheRenderInstancedModel,
+  CacheRenderModel,
+  CacheRenderReferences,
   CacheRenderSceneModel,
   CollisionType,
   Entity,
@@ -11,7 +14,13 @@ import {
 } from "osrs-sdk";
 import type { Location, Model, Region } from "osrs-sdk";
 
+import { DOOM_ASSETS } from "../../doomAssets";
 import { ACID_MAX_HIT } from "./DoomConfig";
+
+/** Quarter-turn rotation picked once per object, as the client rotates spawned locs. */
+function randomQuarterTurn() {
+  return Math.floor(Math.random() * 4) * (Math.PI / 2);
+}
 
 /** Flat tile fill or a box, for hazards the asset tool can't extract as cache objects. */
 class TileShapeModel implements Model {
@@ -72,6 +81,49 @@ abstract class DoomEntity extends Entity {
   }
 }
 
+/**
+ * The compiled cave scene, minus the flat grey roof sheet the scene compiler emits four tiles
+ * above the floor (the game client never draws it; from the fixed camera it shows as grey slabs).
+ */
+class DoomSceneModel extends CacheRenderSceneModel {
+  private roofRemoved = false;
+
+  constructor(sceneId: string) {
+    super(sceneId, { elevation: 0, originOffset: { x: 0, y: 0 } });
+  }
+
+  override draw(...args: Parameters<CacheRenderSceneModel["draw"]>) {
+    super.draw(...args);
+    if (!this.roofRemoved) this.removeRoof();
+  }
+
+  private removeRoof() {
+    const root = (this as unknown as { root: THREE.Group }).root;
+    if (!root.children.length) return;
+    root.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const position = mesh.geometry.getAttribute("position");
+      const color = mesh.geometry.getAttribute("color");
+      if (!position || !color || color.itemSize !== 4) return;
+      // Only whole triangles lying in the roof plane: wall tops that touch it keep their shape.
+      const indices = mesh.geometry.index;
+      const vertexAt = (corner: number) => (indices ? indices.getX(corner) : corner);
+      const triangles = (indices ? indices.count : position.count) / 3;
+      let changed = false;
+      for (let triangle = 0; triangle < triangles; triangle++) {
+        const corners = [vertexAt(triangle * 3), vertexAt(triangle * 3 + 1), vertexAt(triangle * 3 + 2)];
+        if (!corners.every((vertex) => position.getY(vertex) >= 3.99)) continue;
+        // Vertex alpha 0 is discarded by the scene material's alphaTest.
+        corners.forEach((vertex) => color.setW(vertex, 0));
+        changed = true;
+      }
+      if (changed) color.needsUpdate = true;
+    });
+    this.roofRemoved = true;
+  }
+}
+
 /** The cache arena: delves 2-5 use region 13668, delves 6+ region 14180 (floor at base height). */
 export class DoomScene extends DoomEntity {
   constructor(region: Region, private readonly regionId: number) {
@@ -95,7 +147,7 @@ export class DoomScene extends DoomEntity {
   }
 
   create3dModel(): Model {
-    return new CacheRenderSceneModel(`region:${this.regionId}`, { elevation: 0, originOffset: { x: 0, y: 0 } });
+    return new DoomSceneModel(`region:${this.regionId}`);
   }
 }
 
@@ -113,6 +165,8 @@ export class SolidRock extends Entity {
     return 1;
   }
 
+  private readonly rotation = randomQuarterTurn();
+
   get color() {
     return "#6b5a48";
   }
@@ -121,8 +175,12 @@ export class SolidRock extends Entity {
     return false;
   }
 
+  getPerceivedRotation() {
+    return this.rotation;
+  }
+
   create3dModel(): Model {
-    return new TileShapeModel(this, 1.1, 1);
+    return CacheRenderInstancedModel.forRenderable(this, CacheRenderReferences.model(DOOM_ASSETS.models.rock.id));
   }
 }
 
@@ -144,6 +202,8 @@ export class DebrisShadow extends DoomEntity {
 /** Acid blood: up to 7 damage each tick you stand in it, and venom. */
 export class AcidPool extends DoomEntity {
   onVenom: (() => void) | null = null;
+  private readonly rotation = randomQuarterTurn();
+  private readonly modelId = Math.random() < 0.5 ? DOOM_ASSETS.models.acidBloodA.id : DOOM_ASSETS.models.acidBloodB.id;
 
   get size() {
     return 1;
@@ -153,8 +213,12 @@ export class AcidPool extends DoomEntity {
     return "#4fae1f";
   }
 
+  getPerceivedRotation() {
+    return this.rotation;
+  }
+
   create3dModel(): Model {
-    return new TileShapeModel(this, 0, 0.75);
+    return CacheRenderInstancedModel.forRenderable(this, CacheRenderReferences.model(this.modelId));
   }
 
   tick() {
@@ -187,8 +251,16 @@ export class EarthenShield extends DoomEntity {
     return "#c9a227";
   }
 
+  get animationIndex() {
+    return 0;
+  }
+
+  getPerceivedRotation() {
+    return 0;
+  }
+
   create3dModel(): Model {
-    return new TileShapeModel(this, 0, 0.45);
+    return CacheRenderModel.forRenderable(this, CacheRenderReferences.npc(DOOM_ASSETS.npcs.earthenShield.id));
   }
 
   get arrived() {

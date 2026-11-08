@@ -204,6 +204,16 @@ export class BurrowedDoom extends Mob {
     // driven by DoomRegion
   }
 
+  /** Move one tile and let the client interpolate it, instead of snapping like setLocation. */
+  glideTo(to: Location) {
+    if (this.consumesSpace) this.region.clearTileCollisionFlags(this.location.x, this.location.y, this.size);
+    this.location = { ...to };
+    if (this.consumesSpace) this.region.setTileCollisionFlags(to.x, to.y, this.size);
+    this.visualPath.push({ ...to, run: true });
+    this.visualMovementActive = true;
+    this.region.refreshUnitChunk(this);
+  }
+
   override get idlePoseId() {
     return BurrowedDoomAnimations.BurrowIdle;
   }
