@@ -23,7 +23,7 @@ function randomQuarterTurn() {
 }
 
 /** Flat tile fill or a box, for hazards the asset tool can't extract as cache objects. */
-class TileShapeModel implements Model {
+export class TileShapeModel implements Model {
   private readonly mesh: THREE.Mesh;
   private readonly material: THREE.MeshBasicMaterial | THREE.MeshLambertMaterial;
 
@@ -85,16 +85,16 @@ abstract class DoomEntity extends Entity {
  * The compiled cave scene, minus the flat grey roof sheet the scene compiler emits four tiles
  * above the floor (the game client never draws it; from the fixed camera it shows as grey slabs).
  */
-class DoomSceneModel extends CacheRenderSceneModel {
+export class DoomSceneModel extends CacheRenderSceneModel {
   private roofRemoved = false;
 
-  constructor(sceneId: string) {
-    super(sceneId, { elevation: 0, originOffset: { x: 0, y: 0 } });
+  constructor(sceneId: string, private readonly sceneOptions: { elevation?: number; keepRoof?: boolean } = {}) {
+    super(sceneId, { elevation: sceneOptions.elevation ?? 0, originOffset: { x: 0, y: 0 } });
   }
 
   override draw(...args: Parameters<CacheRenderSceneModel["draw"]>) {
     super.draw(...args);
-    if (!this.roofRemoved) this.removeRoof();
+    if (!this.roofRemoved && !this.sceneOptions.keepRoof) this.removeRoof();
   }
 
   private removeRoof() {

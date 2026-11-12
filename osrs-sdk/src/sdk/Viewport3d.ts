@@ -214,6 +214,11 @@ export class Viewport3d implements ViewportDelegate {
     this.clientCameraRotation.setMiddleMouseDown(false);
   }
 
+  /** Zoom the camera out by `offset` beyond its default orbit distance (mouse wheel scale). */
+  setZoomOffset(offset: number) {
+    this.orbitZoomOffset = offset;
+  }
+
   onDocumentMouseWheel(e: WheelEvent) {
     const v = this.camera.position.z + e.deltaY * ZOOM_MULT;
     if (v >= 2 && v <= 20) {

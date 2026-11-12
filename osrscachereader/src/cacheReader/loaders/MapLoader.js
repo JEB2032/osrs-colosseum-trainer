@@ -171,6 +171,11 @@ export default class MapLoader {
 
     load(bytes, id, rscache) {
         if (bytes == undefined) return new MapDefinition();
+        // Unnamed map index (2026+ caches): archive id is the region id and its files are
+        // 0 = terrain, 1 = locations. RSCache decodes those itself from the raw bytes.
+        if (rscache.indicies[5].named === false) {
+            return { id, raw: true };
+        }
         let x, y;
         let mapInfo = rscache.cacheRequester.xteas[id];
         //if there is xteas then its a location def
@@ -204,7 +209,7 @@ export default class MapLoader {
         def.regionX = x;
         def.regionY = y;
         def.locations = [];
-        let dataview = new DataView(bytes.buffer);
+        let dataview = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
         let id = -1;
         let idOffset;
@@ -246,7 +251,7 @@ export default class MapLoader {
         def.id = defId;
         def.regionX = x;
         def.regionY = y;
-        let dataview = new DataView(bytes.buffer);
+        let dataview = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
         def.tiles = [];
 

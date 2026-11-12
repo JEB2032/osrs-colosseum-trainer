@@ -33,7 +33,7 @@ export class BerserkerRing_i extends Ring {
       defence: {
         stab: 0,
         slash: 0,
-        crush: 0,
+        crush: 8,
         magic: 0,
         range: 0,
       },

@@ -1,6 +1,7 @@
 import { defineConfig } from "osrs-sdk-assets";
 import { COLOSSEUM_ASSETS } from "./src/assets";
 import { DOOM_ASSETS } from "./src/doomAssets";
+import { MAGGOT_ASSETS } from "./src/maggotAssets";
 
 /** Merge per-encounter asset lists category by category. */
 function mergeAssets<A extends Record<string, object>, B extends Record<string, object>>(a: A, b: B) {
@@ -12,7 +13,7 @@ function mergeAssets<A extends Record<string, object>, B extends Record<string, 
 }
 
 export default defineConfig({
-  cache: { openrs2: 2437 },
-  assets: mergeAssets(COLOSSEUM_ASSETS, DOOM_ASSETS),
+  cache: { openrs2: 2762 },
+  assets: mergeAssets(mergeAssets(COLOSSEUM_ASSETS, DOOM_ASSETS), MAGGOT_ASSETS),
   outDir: "./public/osrs-assets",
 });

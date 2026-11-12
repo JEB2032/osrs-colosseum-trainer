@@ -13,3 +13,5 @@ export { PrayerRegenerationPotion } from "./PrayerRegenerationPotion";
 export { Anglerfish } from "./Anglerfish";
 export { DivineRangingPotion } from "./DivineRangingPotion";
 export { ExtendedAntiVenomPlus } from "./ExtendedAntiVenomPlus";
+export * from "./PrayerPotion";
+export * from "./SeaTurtle";

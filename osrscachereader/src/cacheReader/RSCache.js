@@ -1,3 +1,4 @@
+import MapLoader from "./loaders/MapLoader.js";
 import * as DataViewImport from "./helpers/DataView.js";
 
 import CacheDefinitionLoader from "./CacheDefinitionLoader.js";
@@ -259,6 +260,19 @@ class RSCache {
     }
 
     async #getMapDef(x, y, type) {
+        const mapIndex = this.indicies[IndexType.MAPS.id];
+        if (mapIndex.named === false) {
+            // RuneLite RegionLoader: archive = region id, file 0 = terrain, file 1 = locations.
+            const regionId = (x << 8) | y;
+            if (mapIndex.archives[regionId] == undefined) return undefined;
+            const files = await this.getAllFiles(IndexType.MAPS, regionId);
+            const file = files.find((entry) => entry?.id === (type === "m" ? 0 : 1));
+            if (file?.content == undefined) return undefined;
+            const loader = new MapLoader();
+            return type === "m"
+                ? loader.loadMapDef(file.content, regionId, x, y)
+                : loader.loadLocationDef(file.content, regionId, x, y);
+        }
         let archives = this.indicies[IndexType.MAPS.id].archives;
         let hashVal = this.hash(type + x + "_" + y);
 

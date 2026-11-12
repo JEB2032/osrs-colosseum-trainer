@@ -38,6 +38,9 @@ import { LOOKAHEAD_TICKS, type CombatStyle } from "./content/colosseum/js/Coach"
 import { DoomRegion } from "./content/doom/DoomRegion";
 import { doomBudgetLoadout } from "./content/doom/DoomLoadout";
 import { DoomSidebar, DoomStartModal, DoomStatus, DoomTheme } from "./content/doom/DoomUI";
+import { MaggotRegion } from "./content/maggot/MaggotRegion";
+import { maggotLoadout } from "./content/maggot/MaggotLoadout";
+import { MaggotSidebar, MaggotStartModal, MaggotStatus, MaggotTheme } from "./content/maggot/MaggotUI";
 import type { ReplayController } from "./content/colosseum/js/ReplayController";
 
 declare const __OSRS_CACHE_RENDER_MANIFEST_URL__: string;
@@ -139,6 +142,7 @@ function createTrainer() {
     "colosseum.html": () => new ColosseumRegion(loadoutTemplates),
     "waves.html": () => new WavesRegion(wavesLoadoutTemplates),
     "doom.html": () => new DoomRegion([doomBudgetLoadout]),
+    "maggot.html": () => new MaggotRegion([maggotLoadout]),
   };
   const regionName = window.location.pathname.split("/").pop() ?? "waves.html";
   const region = (regions[regionName] ?? regions["waves.html"])();
@@ -738,7 +742,7 @@ export function ColosseumApp() {
   }, [trainer]);
 
   useEffect(() => {
-    if (!(trainer.region instanceof DoomRegion)) return;
+    if (!(trainer.region instanceof DoomRegion || trainer.region instanceof MaggotRegion)) return;
     const region = trainer.region;
     const onKeyDown = (event: KeyboardEvent) => {
       if (Settings.is_keybinding) return;
@@ -813,6 +817,10 @@ export function ColosseumApp() {
         {trainer.region instanceof DoomRegion && isLoaded && <DoomStartModal region={trainer.region} />}
         {trainer.region instanceof DoomRegion && isLoaded && <DoomStatus region={trainer.region} />}
         {trainer.region instanceof DoomRegion && isLoaded && <ReplayOverlay region={trainer.region} />}
+        {trainer.region instanceof MaggotRegion && <MaggotTheme />}
+        {trainer.region instanceof MaggotRegion && isLoaded && <MaggotStartModal region={trainer.region} />}
+        {trainer.region instanceof MaggotRegion && isLoaded && <MaggotStatus region={trainer.region} />}
+        {trainer.region instanceof MaggotRegion && isLoaded && <ReplayOverlay region={trainer.region} />}
         <LoadoutManager
           loadouts={loadoutTemplates}
           open={loadoutOpen}
@@ -821,7 +829,9 @@ export function ColosseumApp() {
       </GameOverlay>
       {trainer.region instanceof DoomRegion
         ? <DoomSidebar region={trainer.region} />
-        : (
+        : trainer.region instanceof MaggotRegion
+          ? <MaggotSidebar region={trainer.region} />
+          : (
           <DefaultSidebar>
             <Sidebar
               onLoadoutToggle={() => setLoadoutOpen((open) => !open)}

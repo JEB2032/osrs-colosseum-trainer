@@ -236,6 +236,11 @@ export class Viewport {
     this.delegate.setMapRotation(CardinalDirection.SOUTH);
   }
 
+  /** Zoom offset for 3D viewports (no-op in 2D). */
+  setZoomOffset(offset: number) {
+    (this.delegate as { setZoomOffset?: (value: number) => void }).setZoomOffset?.(offset);
+  }
+
   rotateNorth() {
     this.delegate.setMapRotation(CardinalDirection.NORTH);
   }

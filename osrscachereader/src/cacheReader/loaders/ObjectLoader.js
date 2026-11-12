@@ -562,6 +562,19 @@ export default class ObjectLoader {
             def.unknown1 = true;
         } else if (opcode == 96) {
             def.raise = dataview.readUint8();
+        } else if (opcode == 97 || opcode == 98) {
+            // Rev 241+: transforms with 24-bit destination ids (RuneLite ObjectLoader).
+            var varpID = dataview.readUint16();
+            def.varbitID = varpID == 0xffff ? -1 : varpID;
+            var configId = dataview.readUint16();
+            def.varpID = configId == 0xffff ? -1 : configId;
+            var fallback = opcode == 98 ? dataview.readInt24() : -1;
+            var length = dataview.readUint8();
+            def.configChangeDest = [];
+            for (var index = 0; index <= length; ++index) {
+                def.configChangeDest.push(dataview.readInt24());
+            }
+            def.configChangeDest.push(fallback);
         } else if (opcode == 100) {
             EntityOpsLoader.decodeSubOp(def.actions, dataview);
         } else if (opcode == 101) {

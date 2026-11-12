@@ -46,6 +46,7 @@ const config = {
         { from: `index.html`, to: "colosseum.html", context: `src/` },
         { from: `index.html`, to: "waves.html", context: `src/` },
         { from: `index.html`, to: "doom.html", context: `src/` },
+        { from: `index.html`, to: "maggot.html", context: `src/` },
         { from: `manifest.json`, to: "", context: `src/` },
         {
           from: `assets/images/webappicon.png`,

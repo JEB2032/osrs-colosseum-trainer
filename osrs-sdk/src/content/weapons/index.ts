@@ -23,3 +23,7 @@ export { SlayersStaffE } from "./SlayersStaffE";
 export { RosewoodBlowpipe } from "./RosewoodBlowpipe";
 export { CrystalHalberd } from "./CrystalHalberd";
 export { SuperiorDemonbaneSpell } from "./SlayersStaffE";
+export * from "./TwinflameStaff";
+export * from "./AbyssalBludgeon";
+export * from "./CrystalBow";
+export * from "./BurningClaws";

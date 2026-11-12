@@ -82,3 +82,8 @@ export { VoidKnightGloves } from "./VoidKnightGloves";
 export { Lightbearer } from "./Lightbearer";
 export { BookOfTheDead } from "./BookOfTheDead";
 export { AmethystArrows } from "./AmethystArrows";
+export * from "./VoidMageHelm";
+export * from "./VoidMeleeHelm";
+export * from "./ImbuedZamorakCape";
+export * from "./BookOfDarkness";
+export * from "./WarBlessing";

@@ -63,6 +63,24 @@ divine ranging and extended anti-venom+ in the inventory.
 - HP, max hits, attack speed, shockwave count, beam damage and car speed scale per delve. The cave scene (region 13668 or 14180) loads from the cache.
 - Restart is Ctrl+R. "Replay last 30s" uses the same deterministic replay as the Colosseum trainer.
 
+## Maggot King: `maggot.html`
+
+Uses the setup from the user's own screenshot, which was checked stat by stat against the wiki:
+
+- **Worn:** void mage helm, imbued Zamorak cape, occult necklace, war blessing, Twinflame staff (autocasting Fire Wave), elite void top and robe, Book of darkness, void knight gloves, Aranea boots, berserker ring (i).
+- **Inventory switches:** bludgeon, void melee helm, fire cape and fury for melee; a crystal bow for larvae; burning claws.
+
+The fight follows the wiki (Maggot King/Strategies):
+
+- **Ranged and magic:** ranged (green) and magic (yellow) spit hit up to 46 and leave poisonous or sticky bile. The type switches at every screech.
+- **Screech:** comes after 4-8 attacks. Leaving a protection prayer on costs 15-25 per tick, and the king's Defence drops to 100. Carrion falls, shown by shadows first, then splatters onto neighbouring tiles.
+- **Larvae:** from 1,250 HP. Standard ranged kills one in the air. Landed larvae eat carrion (+1 HP each) and leech you if you stand on their tile.
+- **Below 980 HP:** blocks of 3x4 slams from the bone wall (55, or 35 with Protect from Melee). A melee punish on the slam tick gets an 85% smaller crush defence roll and +50% damage. Magic defence rises to +400 at the wall.
+- **Fire spells:** each hit adds a 5-damage burn and removes 20 magic defence, up to 5 stacks.
+- **Below 20%:** the king stays at the wall and only slams. Larvae come in groups.
+
+The lair is region 11645 from cache revision 242. The HUD tracks burn stacks, larvae, poison and how many punishes you landed.
+
 ## Layout
 
 | Folder | Upstream | Notes |
@@ -96,3 +114,5 @@ On Windows, set `npm_config_script_shell` to Git Bash so the `rm -rf` scripts wo
 - Doom: beam charge length, larva spawn intervals, car slam damage and debris fall delay are assumed (the wiki doesn't give them).
   Rocks, acid and the earthen shield use their cache models; the attack beam itself is shown only as charge-up and impact graphics.
   Not simulated: the crystal halberd special, thralls/Death Charge, teleports and the rune pouch. Divine ranging works like a normal ranging potion.
+- Maggot King assumptions (not stated on the wiki): attack speed 6 then 5, 5-8 carrion piles, carrion fall delay and lifetime, larva flight time, slam wind-up, bile "minor" damage and burn duration. The punish is given whenever you're next to the king with a melee weapon targeting it on the slam tick (the client's exact click timing isn't modelled). The burning claws burn isn't simulated. Poisonous bile shortening poison immunity isn't simulated.
+- Cache revision 242 stores maps unnamed (archive = region id); `osrscachereader` was patched for this, plus object opcodes 97/98.
